@@ -1,10 +1,5 @@
 # GeoTrack-GS
 
-<div align="center">
-  <!-- TODO: 在这里添加一个展示项目效果的 GIF 或图片 -->
-  <img src="" width="80%">
-  <p><i>一个由 GeoTrack-GS 渲染的示例场景</i></p>
-</div>
 
 本项目利用 3D 高斯溅射（3D Gaussian Splatting）技术，实现先进的 3D 场景重建与渲染。该项目基于论文《3D Gaussian Splatting for Real-Time Radiance Field Rendering》。此实现支持场景的训练和渲染，并利用 PyTorch 和自定义 CUDA 核心以实现高性能。
 
