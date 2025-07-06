@@ -69,4 +69,4 @@ python full_eval.py -m /path/to/your/trained/model
 
 ## 许可证
 
-本项目根据 LICENSE.md 文件中的条款进行许可。更多详情请参阅该文件。
+本项目根据 LICENSE.md 文件中的条款进行许可。更多详情请参阅该文件。 
