@@ -495,3 +495,36 @@ class GaussianModel:
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter, :2], dim=-1,
                                                              keepdim=True)
         self.denom[update_filter] += 1
+
+    def get_closest_gaussians_for_anchors(self, anchors_3d: torch.Tensor):
+        """
+        为给定的3D锚点找到场景中距离最近的3D高斯基元的中心。
+        这是一个高效的、可批处理的操作。
+
+        Args:
+            anchors_3d (torch.Tensor): [N, 3] 的三维锚点坐标。
+
+        Returns:
+            torch.Tensor: [N, 3] 的、与每个锚点关联的高斯基元中心μ的坐标。
+        """
+        if anchors_3d.shape[0] == 0:
+            # 如果没有锚点，返回一个空的tensor
+            return torch.tensor([], device=self._xyz.device, dtype=self._xyz.dtype).reshape(0, 3)
+
+        # 获取当前所有高斯基元的中心坐标
+        all_centers = self.get_xyz
+
+        # 使用PyTorch的cdist高效计算所有锚点到所有高斯中心的距离矩阵
+        # dists 的形状为 [N_anchors, M_gaussians]
+        dists = torch.cdist(anchors_3d, all_centers)
+
+        # 为每个锚点找到距离最小的高斯点的索引
+        # min_dist_indices 的形状为 [N_anchors]
+        min_dist_indices = torch.argmin(dists, dim=1)
+
+        # 根据索引返回对应的高斯中心坐标
+        associated_centers = all_centers[min_dist_indices]
+
+        return associated_centers
+
+

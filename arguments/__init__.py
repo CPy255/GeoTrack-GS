@@ -55,6 +55,9 @@ class ModelParams(ParamGroup):
         self.data_device = "cuda"
         self.eval = False
         self.n_views = 0
+        # --- GeoTrack-GS: 新增模型与数据相关参数 ---
+        self.track_path = "tracks.h5"  # 预计算的特征轨迹文件路径
+        self.use_gtdca_attention = False  # 启用GT-DCA注意力模块
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -97,6 +100,10 @@ class OptimizationParams(ParamGroup):
         self.dist_thres = 10.
         self.depth_weight = 0.05
         self.depth_pseudo_weight = 0.5
+        # --- GeoTrack-GS: 新增优化与损失相关参数 ---
+        self.use_hybrid_loss = False  # 启用混合几何损失模型
+        self.disable_depth_loss = False  # 完全禁用原有的深度损失 (用于消融实验)
+        self.lambda_reproj = 0.1  # [如果不用动态加权] 全局重投影损失的静态权重
         super().__init__(parser, "Optimization Parameters")
 
 

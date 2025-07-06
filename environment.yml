@@ -1,4 +1,4 @@
-name: FSGS
+name: GeoTrack-GS
 channels:
   - pytorch
   - conda-forge
@@ -12,6 +12,8 @@ dependencies:
   - torchaudio=0.12.1
   - torchvision=0.13.1
   - tqdm
+  - kornia=0.7.1
+  - h5py
   - pip:
     - submodules/diff-gaussian-rasterization-confidence
     - submodules/simple-knn
@@ -21,3 +23,5 @@ dependencies:
     - opencv_python==4.8.1.78
     - imageio==2.31.2
     - open3d==0.17.0
+    - kornia_moons==0.2.5
+    - lightglue==0.0
