@@ -15,7 +15,7 @@ from kornia.io import ImageLoadType, load_image
 
 # --- 将项目根目录添加到Python路径中，以便导入FSGS的模块 ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from scene.dataset_readers import read_colmap_scene
+from scene.dataset_readers import readColmapSceneInfo
 
 
 def build_tracks(pairwise_matches, num_images):
@@ -54,7 +54,7 @@ def main(args):
 
     # --- 2. 加载场景数据 ---
     print("加载相机和图像数据...")
-    scene_info = read_colmap_scene(args.scene_path)
+    scene_info = readColmapSceneInfo(args.scene_path)
 
     sorted_cams = sorted(scene_info.train_cameras, key=lambda x: x.id)
     intrinsics = {cam.id: torch.from_numpy(cam.K).float() for cam in sorted_cams}

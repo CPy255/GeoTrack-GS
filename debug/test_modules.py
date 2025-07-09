@@ -1,3 +1,5 @@
+# debug/test_modules.py
+
 import os
 import sys
 import torch
@@ -10,7 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from scene.gaussian_model import GaussianModel
 from utils.loss_utils import reprojection_loss
-from submodules.GTDCA_attention import GTDCA  # 确保您的注意力模块文件名为 GTDCA_attention.py
+from submodules.GTDCA_attention import GTDCA
 from scene.cameras import Camera
 
 
@@ -45,19 +47,15 @@ def run_tests():
     print("\n[2/3] 正在测试 utils/loss_utils.py 中的 reprojection_loss...")
     try:
         # 准备模拟数据
-        # 假设有一个包含2个点的轨迹，在视图0和视图1中被看到
         mock_tracks_info = [np.array([[0, 100, 150], [1, 110, 160]], dtype=np.float32)]
         mock_anchors_3d = torch.randn(1, 3, device=device)
 
         # 修正: 创建更真实的模拟相机，并手动设置必要的属性
         mock_cameras = []
         for i in range(2):
-            # 注意: FoVx, FoVy不能为0，否则投影矩阵会出错
             cam = Camera(colmap_id=i, R=np.identity(3), T=np.zeros(3), FoVx=45, FoVy=45,
                          image=torch.rand(3, 256, 256), gt_alpha_mask=None,
                          image_name=f"img{i}", uid=i, data_device=device)
-            # 关键修正: 手动计算并设置 full_proj_transform
-            # 在真实代码中，这是由Scene类处理的，但测试时需要我们手动模拟
             cam.full_proj_transform = torch.tensor(cam.world_view_transform.T @ cam.projection_matrix,
                                                    device=device).float()
             mock_cameras.append(cam)
@@ -74,13 +72,21 @@ def run_tests():
     # --- 3. 测试注意力模块 ---
     print("\n[3/3] 正在测试 submodules/GTDCA_attention.py...")
     try:
-        # 再次确认它可以被成功实例化和调用
         mock_gtdca = GTDCA(d_model=64).to(device)
 
         # 创建模拟输入
         query = torch.randn(1, 10, 64, device=device)  # B, N_g, C
         value = torch.randn(1, 64, 128, 128, device=device)  # B, C, H, W
+
+        # ===================================================================
+        # --- 错误修正之处 ---
+        # 原来的代码: ref_pts = torch.rand(1, 10, 2, device=device).unsqueeze(2)
+        # 这会创建一个形状为 [1, 10, 1, 2] 的4维张量，是错误的。
+        # GTDCA模块期望的参考点形状是 [B, N_g, 2]，即一个3维张量。
+        # 我们只需移除多余的 .unsqueeze(2) 即可。
         ref_pts = torch.rand(1, 10, 2, device=device)
+        # ===================================================================
+
         traj_pts = torch.rand(1, 5, 2, device=device)
 
         output = mock_gtdca(query, value, ref_pts, traj_pts)
