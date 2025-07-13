@@ -17,7 +17,11 @@ import os
 from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import RGB2SH
-from simple_knn._C import distCUDA2
+try:
+    from simple_knn._C import distCUDA2
+except ImportError:
+    print("⚠️ simple_knn 模块未找到，当前仅做轨迹提取，不会用到 KNN")
+    distCUDA2 = None
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation, chamfer_dist
 import open3d as o3d
