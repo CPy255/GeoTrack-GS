@@ -11,7 +11,7 @@ from pathlib import Path
 # --- 将项目根目录添加到Python路径中 ---
 # 这使得我们可以直接复用FSGS的数据加载逻辑
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
-from scene.dataset_readers import read_colmap_scene
+from scene.dataset_readers import readColmapSceneInfo
 
 
 def visualize_3d_anchors(anchors_3d, colmap_points=None):
@@ -64,7 +64,7 @@ def visualize_2d_tracks_on_images(tracks_h5_path, scene_path, num_images_to_show
         return
 
     # 加载图像路径
-    scene_info = read_colmap_scene(scene_path)
+    scene_info = readColmapSceneInfo(scene_path)
     sorted_cams = sorted(scene_info.train_cameras, key=lambda x: x.id)
     image_paths = {cam.id: os.path.join(scene_path, "images", cam.image_name) for cam in sorted_cams}
 
