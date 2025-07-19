@@ -375,11 +375,14 @@ def readColmapSceneInfo(path, images, eval, n_views=0, llffhold=8):
                                               images_folder=images_folder)
     cam_infos = sorted(cam_infos_unsorted, key=lambda x: x.image_name)
 
-    # --- 5. 划分训练/测试集并进行二次采样 ---
-    if eval:
+    # --- 5. 划分训练/测试集并进行二次采样 (这是我们修改的核心) ---
+    if llffhold > 0:
+        print(f"✅ [INFO] LLFF holdout factor: {llffhold}. Splitting data into training and testing sets.")
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
         test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        print(f"✅ [INFO] Data split: {len(train_cam_infos)} train, {len(test_cam_infos)} test.")
     else:
+        print("✅ [INFO] No LLFF holdout. Using all cameras for training.")
         train_cam_infos = cam_infos
         test_cam_infos = []
 

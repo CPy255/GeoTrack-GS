@@ -83,29 +83,42 @@ def render_video(source_path, model_path, iteration, views, gaussians, pipeline,
 
 
 def render_sets(dataset : ModelParams, pipeline : PipelineParams, args):
-
     with torch.no_grad():
         gaussians = GaussianModel(args)
+        # 关键修复：总是将完整的 'args' 对象传递给 Scene 类
         scene = Scene(args, gaussians, load_iteration=args.iteration, shuffle=False)
 
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-        if args.video:
-            # 首先尝试获取测试相机
-            video_cameras = scene.getTestCameras()
-            # 如果没有测试相机，则使用训练相机作为备用
-            if not video_cameras:
-                print("Warning: No test cameras found. Using training cameras for video generation setup.")
-                video_cameras = scene.getTrainCameras()
-            
-            # 确保至少有一组相机可用
-            if video_cameras:
-                render_video(dataset.source_path, dataset.model_path, scene.loaded_iter, video_cameras,
-                             gaussians, pipeline, background, args.fps)
-            else:
-                print("Error: No cameras (neither test nor train) available to generate video.")
+    # 如果是视频模式，调用 render_video
+    if args.video:
+        video_cameras = scene.getTestCameras()
+        if not video_cameras:
+            print("Warning: No test cameras found. Using training cameras for video generation setup.")
+            video_cameras = scene.getTrainCameras()
+        
+        if video_cameras:
+            render_video(dataset.source_path, dataset.model_path, scene.loaded_iter, video_cameras,
+                         gaussians, pipeline, background, args.fps)
+        else:
+            print("Error: No cameras (neither test nor train) available to generate video.")
+        return # 生成完视频后结束
 
+    # 如果是图片渲染模式 (默认)
+    if not args.skip_train:
+        # 为了评估，我们通常只关心测试集，可以暂时跳过训练集的渲染
+        # print("Rendering training set...")
+        # render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background, args)
+        pass
+
+    if not args.skip_test:
+        print("Rendering test set...")
+        # 检查测试集是否为空
+        if scene.getTestCameras():
+            render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, args)
+        else:
+            print("Warning: No test cameras found to render.")
 
 
 if __name__ == "__main__":
