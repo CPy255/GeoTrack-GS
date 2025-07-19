@@ -112,14 +112,14 @@ sudo apt-get install colmap
 
 # Windows: 下载并安装 COLMAP from https://colmap.github.io/
 
-# 使用 tools/llff.py 脚本处理 LLFF 数据集
-python tools/llff.py -s /path/to/your/images
+# 使用 tools/colmap_llff.py 脚本处理 LLFF 数据集
+python tools/colmap_llff.py -s /path/to/your/images
 
 # 指定输出路径
-python tools/llff.py -s /path/to/your/images -o /path/to/output
+python tools/colmap_llff.py -s /path/to/your/images -o /path/to/output
 
 # 高质量 LLFF 处理
-python tools/llff.py -s /path/to/your/images -o /path/to/output --quality high --feature_type sift
+python tools/colmap_llff.py -s /path/to/your/images -o /path/to/output --quality high --feature_type sift
 ```
 
 ##### 360度数据集处理
@@ -210,7 +210,7 @@ print(f'图像数量: {len(images)}')
 
 ```bash
 # LLFF 高质量处理
-python tools/llff.py -s /path/to/images \
+python tools/colmap_llff.py -s /path/to/images \
     -o /path/to/output \
     --quality high \
     --feature_type sift \
@@ -224,7 +224,7 @@ python tools/colmap_360.py -s /path/to/images \
     --matcher_type exhaustive
 
 # 针对困难场景的参数
-python tools/llff.py -s /path/to/images \
+python tools/colmap_llff.py -s /path/to/images \
     -o /path/to/output \
     --quality extreme \
     --feature_type sift \
@@ -239,19 +239,19 @@ python tools/llff.py -s /path/to/images \
 
 ```bash
 # 如果 COLMAP 重建失败，尝试降低质量要求
-python tools/llff.py -s /path/to/images --quality medium --feature_type orb
+python tools/colmap_llff.py -s /path/to/images --quality medium --feature_type orb
 
 # 如果图像过多导致内存不足
 python tools/colmap_360.py -s /path/to/images --max_num_images 200 --quality medium
 
 # 如果特征匹配失败，使用顺序匹配
-python tools/llff.py -s /path/to/images --matcher_type sequential --overlap 10
+python tools/colmap_llff.py -s /path/to/images --matcher_type sequential --overlap 10
 
 # 检查处理日志
 python tools/colmap_360.py -s /path/to/images --verbose
 
 # 处理完成后验证数据集
-python tools/llff.py -s /path/to/processed/dataset --validate_only
+python tools/colmap_llff.py -s /path/to/processed/dataset --validate_only
 ```
 
 ##### 处理示例
@@ -260,18 +260,18 @@ python tools/llff.py -s /path/to/processed/dataset --validate_only
 
 ```bash
 # 1. LLFF 数据集处理示例
-python tools/llff.py -s /path/to/llff/images -o /path/to/llff/output
+python tools/colmap_llff.py -s /path/to/llff/images -o /path/to/llff/output
 
 # 2. 360 度数据集处理示例
 python tools/colmap_360.py -s /path/to/360/images -o /path/to/360/output
 
 # 3. 批量处理多个数据集
 for dataset in dataset1 dataset2 dataset3; do
-    python tools/llff.py -s /path/to/$dataset/images -o /path/to/$dataset/processed
+    python tools/colmap_llff.py -s /path/to/$dataset/images -o /path/to/$dataset/processed
 done
 
 # 4. 处理后直接训练
-python tools/llff.py -s /path/to/images -o /path/to/processed
+python tools/colmap_llff.py -s /path/to/images -o /path/to/processed
 python train.py -s /path/to/processed -m output/model
 ```
 
