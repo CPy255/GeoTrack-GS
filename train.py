@@ -34,6 +34,15 @@ from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from lpipsPyTorch import lpips
 
+# GeoTrack-GS: 导入几何约束模块
+from geometric_constraints import (
+    ConstraintConfig,
+    TrajectoryManagerImpl,
+    EnhancedConstraintEngine,
+    EnhancedReprojectionValidator
+)
+from utils.config_utils import setup_geometric_constraints_config, print_geometric_constraints_summary
+
 
 def training(dataset, opt, pipe, args):
     testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from = args.test_iterations, \
@@ -46,6 +55,41 @@ def training(dataset, opt, pipe, args):
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
+
+    # GeoTrack-GS: 初始化几何约束系统
+    constraint_system = None
+    trajectory_manager = None
+    reprojection_validator = None
+    
+    if hasattr(args, 'enable_geometric_constraints') and args.enable_geometric_constraints:
+        try:
+            # 加载约束配置
+            config_path = getattr(args, 'constraint_config_path', None)
+            if config_path and os.path.exists(config_path):
+                constraint_config = ConstraintConfig.from_file(config_path)
+            else:
+                constraint_config = ConstraintConfig()
+            
+            # 初始化轨迹管理器
+            if hasattr(args, 'track_path') and args.track_path and os.path.exists(args.track_path):
+                trajectory_manager = TrajectoryManagerImpl(constraint_config)
+                trajectories = trajectory_manager.load_trajectories(args.track_path)
+                print(f"[GeoTrack-GS] Loaded {len(trajectories)} trajectories from {args.track_path}")
+            
+            # 初始化约束引擎
+            constraint_system = EnhancedConstraintEngine(constraint_config)
+            
+            # 初始化验证器
+            reprojection_validator = EnhancedReprojectionValidator(constraint_config)
+            
+            print("[GeoTrack-GS] Geometric constraint system initialized successfully")
+            
+        except Exception as e:
+            print(f"[GeoTrack-GS] Warning: Failed to initialize constraint system: {e}")
+            print("[GeoTrack-GS] Continuing with standard training...")
+            constraint_system = None
+            trajectory_manager = None
+            reprojection_validator = None
 
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -96,6 +140,58 @@ def training(dataset, opt, pipe, args):
         Ll1 =  l1_loss_mask(image, gt_image)
         loss = ((1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)))
 
+        # GeoTrack-GS: 计算几何约束损失
+        geometric_constraint_loss = torch.tensor(0.0, device="cuda")
+        if constraint_system is not None and trajectory_manager is not None:
+            try:
+                # 获取活跃轨迹
+                active_trajectories = trajectory_manager.get_active_trajectories()
+                
+                if len(active_trajectories) > 0:
+                    # 计算重投影约束
+                    cameras = scene.getTrainCameras()
+                    gaussian_points = gaussians.get_xyz
+                    
+                    # 计算自适应权重
+                    adaptive_weights = constraint_system.compute_adaptive_weights(
+                        active_trajectories, 
+                        image_regions=image,
+                        iteration=iteration
+                    )
+                    
+                    # 计算重投影约束
+                    constraint_result = constraint_system.compute_reprojection_constraints(
+                        active_trajectories,
+                        cameras,
+                        gaussian_points
+                    )
+                    
+                    # 计算多尺度约束
+                    multiscale_result = constraint_system.compute_multiscale_constraints(
+                        active_trajectories,
+                        cameras,
+                        scales=[1.0, 0.5, 0.25]
+                    )
+                    
+                    # 组合约束损失
+                    geometric_constraint_loss = (
+                        constraint_result.loss_value + 
+                        multiscale_result.loss_value
+                    )
+                    
+                    # 应用动态权重调度
+                    constraint_weight = getattr(args, 'geometric_constraint_weight', 0.1)
+                    if iteration < 1000:
+                        constraint_weight *= 0.1  # 早期阶段降低权重
+                    elif iteration < 5000:
+                        constraint_weight *= (0.1 + 0.9 * (iteration - 1000) / 4000)  # 逐渐增加
+                    
+                    geometric_constraint_loss *= constraint_weight
+                    
+            except Exception as e:
+                if iteration % 100 == 0:  # 避免过多日志
+                    print(f"[GeoTrack-GS] Warning: Constraint computation failed at iteration {iteration}: {e}")
+                geometric_constraint_loss = torch.tensor(0.0, device="cuda")
 
         rendered_depth = render_pkg["depth"][0]
         midas_depth = torch.tensor(viewpoint_cam.depth_image).cuda()
@@ -106,7 +202,13 @@ def training(dataset, opt, pipe, args):
                         (1 - pearson_corrcoef( - midas_depth, rendered_depth)),
                         (1 - pearson_corrcoef(1 / (midas_depth + 200.), rendered_depth))
         )
-        loss += args.depth_weight * depth_loss
+        
+        # GeoTrack-GS: 可选择性地禁用深度损失（用于消融实验）
+        if not getattr(args, 'disable_depth_loss', False):
+            loss += args.depth_weight * depth_loss
+        
+        # GeoTrack-GS: 添加几何约束损失
+        loss += geometric_constraint_loss
 
         if iteration > args.end_sample_pseudo:
             args.depth_weight = 0.001
@@ -141,9 +243,40 @@ def training(dataset, opt, pipe, args):
             if iteration == opt.iterations:
                 progress_bar.close()
 
+            # GeoTrack-GS: 几何约束验证和日志记录
+            if (constraint_system is not None and reprojection_validator is not None and 
+                iteration % 100 == 0):  # 每100次迭代验证一次
+                try:
+                    # 验证几何约束
+                    if 'constraint_result' in locals() and constraint_result is not None:
+                        validation_metrics = reprojection_validator.validate_constraints(
+                            constraint_result, iteration
+                        )
+                        
+                        # 记录验证指标到tensorboard
+                        if tb_writer:
+                            tb_writer.add_scalar('geometric_constraints/constraint_satisfaction', 
+                                               validation_metrics.constraint_satisfaction, iteration)
+                            tb_writer.add_scalar('geometric_constraints/geometric_consistency', 
+                                               validation_metrics.geometric_consistency, iteration)
+                            tb_writer.add_scalar('geometric_constraints/reprojection_error_mean', 
+                                               validation_metrics.reprojection_error_mean, iteration)
+                            tb_writer.add_scalar('geometric_constraints/constraint_loss', 
+                                               geometric_constraint_loss.item(), iteration)
+                        
+                        # 如果约束满足度过低，记录警告
+                        if validation_metrics.constraint_satisfaction < 0.85:
+                            print(f"[GeoTrack-GS] Warning: Low constraint satisfaction at iteration {iteration}: "
+                                  f"{validation_metrics.constraint_satisfaction:.3f}")
+                            
+                except Exception as e:
+                    if iteration % 500 == 0:  # 减少错误日志频率
+                        print(f"[GeoTrack-GS] Warning: Validation failed at iteration {iteration}: {e}")
+
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss,
-                            testing_iterations, scene, render, (pipe, background))
+                            testing_iterations, scene, render, (pipe, background), 
+                            geometric_constraint_loss if 'geometric_constraint_loss' in locals() else None)
 
             if iteration > first_iter and (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -200,10 +333,13 @@ def prepare_output_and_logger(args):
 
 
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs, geometric_constraint_loss=None):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
+        # GeoTrack-GS: 记录几何约束损失
+        if geometric_constraint_loss is not None:
+            tb_writer.add_scalar('train_loss_patches/geometric_constraint_loss', geometric_constraint_loss.item(), iteration)
         # tb_writer.add_scalar('iter_time', elapsed, iteration)
 
     # Report test and samples of training set
@@ -268,6 +404,14 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     print(args.test_iterations)
+
+    # GeoTrack-GS: 设置几何约束配置
+    if not setup_geometric_constraints_config(args):
+        print("Failed to setup geometric constraints configuration. Exiting.")
+        sys.exit(1)
+    
+    # GeoTrack-GS: 打印配置摘要
+    print_geometric_constraints_summary(args)
 
     print("Optimizing " + args.model_path)
 

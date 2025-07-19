@@ -58,6 +58,8 @@ class ModelParams(ParamGroup):
         # --- GeoTrack-GS: 新增模型与数据相关参数 ---
         self.track_path = "tracks.h5"  # 预计算的特征轨迹文件路径
         self.use_gtdca_attention = False  # 启用GT-DCA注意力模块
+        self.enable_geometric_constraints = False  # 启用几何约束系统
+        self.constraint_config_path = ""  # 约束配置文件路径
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -104,6 +106,34 @@ class OptimizationParams(ParamGroup):
         self.use_hybrid_loss = False  # 启用混合几何损失模型
         self.disable_depth_loss = False  # 完全禁用原有的深度损失 (用于消融实验)
         self.lambda_reproj = 0.1  # [如果不用动态加权] 全局重投影损失的静态权重
+        
+        # 几何约束权重参数
+        self.geometric_constraint_weight = 0.1  # 几何约束损失权重
+        self.multiscale_constraint_weight = 0.05  # 多尺度约束权重
+        self.consistency_constraint_weight = 0.02  # 一致性约束权重
+        
+        # 自适应权重参数
+        self.enable_adaptive_weighting = True  # 启用自适应权重
+        self.texture_weight_min = 0.3  # 纹理权重最小值
+        self.texture_weight_max = 2.0  # 纹理权重最大值
+        self.confidence_decay_factor = 2.0  # 置信度衰减因子
+        
+        # 质量评估参数
+        self.min_trajectory_quality = 0.4  # 最小轨迹质量阈值
+        self.max_outlier_ratio = 0.3  # 最大异常值比例
+        self.outlier_threshold_pixels = 2.0  # 异常值阈值（像素）
+        
+        # 多尺度参数
+        self.multiscale_scales = [1.0, 0.5, 0.25]  # 多尺度比例
+        self.multiscale_weights = [0.5, 0.3, 0.2]  # 多尺度权重
+        
+        # 验证参数
+        self.constraint_validation_interval = 100  # 约束验证间隔
+        self.constraint_satisfaction_threshold = 0.85  # 约束满足度阈值
+        
+        # 鲁棒损失参数
+        self.robust_loss_type = "huber"  # 鲁棒损失类型 ("huber", "l1", "l2")
+        self.huber_delta = 1.0  # Huber损失阈值参数
         super().__init__(parser, "Optimization Parameters")
 
 

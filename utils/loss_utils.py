@@ -14,6 +14,7 @@ from torch.autograd import Variable
 from math import exp
 import torch.nn.functional as F
 import kornia.filters as kf
+from typing import Dict, List, Tuple
 
 
 def l1_loss(network_output, gt):
@@ -200,6 +201,195 @@ def hybrid_geometric_loss(
     total_geom_loss = reproj_loss_val + masked_depth_loss
 
     return total_geom_loss
+
+
+# --- 增强的几何约束损失函数 ---
+
+def enhanced_reprojection_loss(
+        points_3d: torch.Tensor,
+        points_2d: torch.Tensor,
+        camera_matrices: torch.Tensor,
+        weights: torch.Tensor = None,
+        robust_loss_type: str = "huber",
+        delta: float = 1.0
+) -> torch.Tensor:
+    """
+    增强的重投影损失函数，支持自适应权重和鲁棒损失
+    
+    Args:
+        points_3d: 3D点坐标 [N, 3]
+        points_2d: 2D点坐标 [N, 2]
+        camera_matrices: 相机投影矩阵 [N, 3, 4]
+        weights: 自适应权重 [N]
+        robust_loss_type: 鲁棒损失类型 ("huber", "l1", "l2")
+        delta: Huber损失的阈值参数
+    
+    Returns:
+        重投影损失值
+    """
+    # 转换为齐次坐标
+    points_3d_homo = F.pad(points_3d, (0, 1), mode='constant', value=1.0)
+    
+    # 重投影
+    projected_homo = torch.bmm(camera_matrices, points_3d_homo.unsqueeze(-1)).squeeze(-1)
+    projected_2d = projected_homo[:, :2] / (projected_homo[:, 2:3] + 1e-8)
+    
+    # 计算误差
+    error = projected_2d - points_2d
+    
+    # 应用鲁棒损失
+    if robust_loss_type == "huber":
+        loss_per_point = huber_loss(error, delta)
+    elif robust_loss_type == "l1":
+        loss_per_point = torch.abs(error).sum(dim=1)
+    else:  # l2
+        loss_per_point = (error ** 2).sum(dim=1)
+    
+    # 应用权重
+    if weights is not None:
+        loss_per_point = loss_per_point * weights
+    
+    return loss_per_point.mean()
+
+
+def multiscale_geometric_loss(
+        points_3d: torch.Tensor,
+        points_2d_multiscale: Dict[float, torch.Tensor],
+        camera_matrices_multiscale: Dict[float, torch.Tensor],
+        scale_weights: Dict[float, float] = None
+) -> torch.Tensor:
+    """
+    多尺度几何损失计算
+    
+    Args:
+        points_3d: 3D点坐标
+        points_2d_multiscale: 不同尺度的2D点坐标
+        camera_matrices_multiscale: 不同尺度的相机矩阵
+        scale_weights: 尺度权重
+    
+    Returns:
+        多尺度几何损失
+    """
+    total_loss = torch.tensor(0.0, device=points_3d.device)
+    
+    if scale_weights is None:
+        scale_weights = {scale: 1.0/len(points_2d_multiscale) for scale in points_2d_multiscale.keys()}
+    
+    for scale, points_2d in points_2d_multiscale.items():
+        if scale in camera_matrices_multiscale:
+            camera_matrices = camera_matrices_multiscale[scale]
+            weight = scale_weights.get(scale, 1.0)
+            
+            scale_loss = enhanced_reprojection_loss(
+                points_3d, points_2d, camera_matrices
+            )
+            total_loss += weight * scale_loss
+    
+    return total_loss
+
+
+def adaptive_weight_loss(
+        base_loss: torch.Tensor,
+        texture_weights: torch.Tensor,
+        confidence_weights: torch.Tensor,
+        temporal_weight: float = 1.0
+) -> torch.Tensor:
+    """
+    自适应权重损失计算
+    
+    Args:
+        base_loss: 基础损失
+        texture_weights: 纹理权重
+        confidence_weights: 置信度权重
+        temporal_weight: 时序权重
+    
+    Returns:
+        加权后的损失
+    """
+    # 组合权重
+    combined_weights = texture_weights * confidence_weights * temporal_weight
+    
+    # 应用权重
+    weighted_loss = base_loss * combined_weights
+    
+    return weighted_loss.mean()
+
+
+def geometric_consistency_loss(
+        points_3d: torch.Tensor,
+        camera_pairs: List[Tuple[int, int]],
+        camera_matrices: torch.Tensor,
+        epipolar_threshold: float = 1.0
+) -> torch.Tensor:
+    """
+    几何一致性损失（极线约束）
+    
+    Args:
+        points_3d: 3D点坐标
+        camera_pairs: 相机对索引
+        camera_matrices: 相机矩阵
+        epipolar_threshold: 极线距离阈值
+    
+    Returns:
+        几何一致性损失
+    """
+    total_loss = torch.tensor(0.0, device=points_3d.device)
+    
+    for cam1_idx, cam2_idx in camera_pairs:
+        # 计算基础矩阵
+        P1 = camera_matrices[cam1_idx]
+        P2 = camera_matrices[cam2_idx]
+        
+        # 重投影到两个相机
+        points_3d_homo = F.pad(points_3d, (0, 1), mode='constant', value=1.0)
+        proj1 = torch.mm(P1, points_3d_homo.T).T
+        proj2 = torch.mm(P2, points_3d_homo.T).T
+        
+        # 归一化
+        proj1_2d = proj1[:, :2] / (proj1[:, 2:3] + 1e-8)
+        proj2_2d = proj2[:, :2] / (proj2[:, 2:3] + 1e-8)
+        
+        # 简化的极线距离计算（实际应用中需要更精确的基础矩阵）
+        # 这里使用简化版本作为占位符
+        epipolar_error = torch.norm(proj1_2d - proj2_2d, dim=1)
+        consistency_loss = huber_loss(epipolar_error, epipolar_threshold).mean()
+        
+        total_loss += consistency_loss
+    
+    return total_loss / len(camera_pairs)
+
+
+def outlier_robust_loss(
+        errors: torch.Tensor,
+        outlier_threshold: float = 2.0,
+        inlier_weight: float = 1.0,
+        outlier_weight: float = 0.1
+) -> torch.Tensor:
+    """
+    异常值鲁棒损失
+    
+    Args:
+        errors: 误差张量
+        outlier_threshold: 异常值阈值
+        inlier_weight: 内点权重
+        outlier_weight: 异常值权重
+    
+    Returns:
+        鲁棒损失
+    """
+    error_magnitude = torch.norm(errors, dim=-1)
+    
+    # 区分内点和异常值
+    inlier_mask = error_magnitude <= outlier_threshold
+    outlier_mask = ~inlier_mask
+    
+    # 计算加权损失
+    inlier_loss = huber_loss(errors[inlier_mask]).mean() if inlier_mask.any() else torch.tensor(0.0, device=errors.device)
+    outlier_loss = huber_loss(errors[outlier_mask]).mean() if outlier_mask.any() else torch.tensor(0.0, device=errors.device)
+    
+    total_loss = inlier_weight * inlier_loss + outlier_weight * outlier_loss
+    
+    return total_loss
 
 
 
