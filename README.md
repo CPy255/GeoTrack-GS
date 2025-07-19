@@ -197,21 +197,6 @@ print(f'图像数量: {len(images)}')
 "
 ```
 
-##### 常见数据集格式转换
-
-**从其他格式转换到 COLMAP：**
-
-```bash
-# 从 NeRF 格式转换
-python convert.py --source_format nerf -s /path/to/nerf/dataset -o /path/to/colmap/output
-
-# 从 Blender 格式转换
-python convert.py --source_format blender -s /path/to/blender/dataset -o /path/to/colmap/output
-
-# 从视频提取帧并处理
-python convert.py --source_format video -s /path/to/video.mp4 -o /path/to/output --fps 2
-```
-
 ##### 数据集质量优化建议
 
 **拍摄建议：**
@@ -224,21 +209,25 @@ python convert.py --source_format video -s /path/to/video.mp4 -o /path/to/output
 **COLMAP 参数优化：**
 
 ```bash
-# 高质量特征提取
-python convert.py -s /path/to/images \
-    --colmap_executable colmap \
-    --camera OPENCV \
-    --feature_type sift \
+# LLFF 高质量处理
+python tools/llff.py -s /path/to/images \
+    -o /path/to/output \
     --quality high \
-    --num_threads 8 \
-    --gpu_index 0
+    --feature_type sift \
+    --num_threads 8
+
+# 360 度高质量处理
+python tools/colmap_360.py -s /path/to/images \
+    -o /path/to/output \
+    --quality high \
+    --feature_type sift \
+    --matcher_type exhaustive
 
 # 针对困难场景的参数
-python convert.py -s /path/to/images \
-    --colmap_executable colmap \
-    --camera OPENCV \
-    --feature_type sift \
+python tools/llff.py -s /path/to/images \
+    -o /path/to/output \
     --quality extreme \
+    --feature_type sift \
     --matcher_type exhaustive \
     --ba_refine_focal_length \
     --ba_refine_principal_point
@@ -250,16 +239,40 @@ python convert.py -s /path/to/images \
 
 ```bash
 # 如果 COLMAP 重建失败，尝试降低质量要求
-python convert.py -s /path/to/images --quality medium --feature_type orb
+python tools/llff.py -s /path/to/images --quality medium --feature_type orb
 
 # 如果图像过多导致内存不足
-python convert.py -s /path/to/images --max_num_images 200 --quality medium
+python tools/colmap_360.py -s /path/to/images --max_num_images 200 --quality medium
 
-# 如果特征匹配失败
-python convert.py -s /path/to/images --matcher_type sequential --overlap 10
+# 如果特征匹配失败，使用顺序匹配
+python tools/llff.py -s /path/to/images --matcher_type sequential --overlap 10
 
-# 检查 COLMAP 日志
-python convert.py -s /path/to/images --verbose --log_level 2
+# 检查处理日志
+python tools/colmap_360.py -s /path/to/images --verbose
+
+# 处理完成后验证数据集
+python tools/llff.py -s /path/to/processed/dataset --validate_only
+```
+
+##### 处理示例
+
+**完整的数据处理流程：**
+
+```bash
+# 1. LLFF 数据集处理示例
+python tools/llff.py -s /path/to/llff/images -o /path/to/llff/output
+
+# 2. 360 度数据集处理示例
+python tools/colmap_360.py -s /path/to/360/images -o /path/to/360/output
+
+# 3. 批量处理多个数据集
+for dataset in dataset1 dataset2 dataset3; do
+    python tools/llff.py -s /path/to/$dataset/images -o /path/to/$dataset/processed
+done
+
+# 4. 处理后直接训练
+python tools/llff.py -s /path/to/images -o /path/to/processed
+python train.py -s /path/to/processed -m output/model
 ```
 
 ### 2. 训练
