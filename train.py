@@ -45,6 +45,9 @@ from geometric_constraints import (
 )
 from utils.config_utils import setup_geometric_constraints_config, print_geometric_constraints_summary
 
+# 导入几何正则化模块
+from utils.geometry_regularization import create_geometry_regularizer
+
 
 def training(dataset, opt, pipe, args):
     testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from = args.test_iterations, \
@@ -96,11 +99,16 @@ def training(dataset, opt, pipe, args):
             print("[GeoTrack-GS] Geometric constraint system initialized successfully")
             
         except Exception as e:
-            print(f"[GeoTrack-GS] Warning: Failed to initialize constraint system: {e}")
-            print("[GeoTrack-GS] Continuing with standard training...")
+            print(f"[GeoTrack-GS] Failed to initialize geometric constraints: {e}")
             constraint_system = None
             trajectory_manager = None
             reprojection_validator = None
+    
+    # 初始化几何正则化器
+    geometry_regularizer = None
+    if opt.geometry_reg_enabled:
+        geometry_regularizer = create_geometry_regularizer(opt)
+        print(f"[Geometry Regularization] Initialized with weight={opt.geometry_reg_weight}, k_neighbors={opt.geometry_reg_k_neighbors}")
 
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -234,6 +242,22 @@ def training(dataset, opt, pipe, args):
         
         # GeoTrack-GS: 添加几何约束损失
         loss += geometric_constraint_loss
+        
+        # 添加几何正则化损失
+        geometry_reg_loss = torch.tensor(0.0, device="cuda")
+        if geometry_regularizer is not None:
+            try:
+                geometry_reg_loss = geometry_regularizer.compute_anisotropic_regularization_loss(
+                    xyz=gaussians.get_xyz,
+                    scaling=gaussians.get_scaling,
+                    rotation=gaussians.get_rotation,
+                    iteration=iteration
+                )
+                loss += geometry_reg_loss
+            except Exception as e:
+                if iteration % 1000 == 0:  # 降低日志频率
+                    print(f"[Geometry Regularization] Warning: Failed at iteration {iteration}: {e}")
+                geometry_reg_loss = torch.tensor(0.0, device="cuda")
 
         if iteration > args.end_sample_pseudo:
             args.depth_weight = 0.001
@@ -311,7 +335,8 @@ def training(dataset, opt, pipe, args):
             training_report(tb_writer, iteration, Ll1, loss, l1_loss,
                             testing_iterations, scene, render, (pipe, background), 
                             geometric_constraint_loss if 'geometric_constraint_loss' in locals() else None,
-                            gt_dca_info)
+                            gt_dca_info,
+                            geometry_reg_loss if 'geometry_reg_loss' in locals() else None)
 
             if iteration > first_iter and (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -368,13 +393,17 @@ def prepare_output_and_logger(args):
 
 
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs, geometric_constraint_loss=None, gt_dca_info=None):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs, geometric_constraint_loss=None, gt_dca_info=None, geometry_reg_loss=None):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
         # GeoTrack-GS: 记录几何约束损失
         if geometric_constraint_loss is not None:
             tb_writer.add_scalar('train_loss_patches/geometric_constraint_loss', geometric_constraint_loss.item(), iteration)
+        
+        # 记录几何正则化损失
+        if geometry_reg_loss is not None:
+            tb_writer.add_scalar('train_loss_patches/geometry_regularization_loss', geometry_reg_loss.item(), iteration)
         
         # Task: 确保与现有SH系数的兼容性 - GT-DCA performance logging
         if gt_dca_info is not None and gt_dca_info.get('status') == 'initialized':

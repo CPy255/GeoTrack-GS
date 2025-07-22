@@ -134,6 +134,14 @@ class OptimizationParams(ParamGroup):
         # 鲁棒损失参数
         self.robust_loss_type = "huber"  # 鲁棒损失类型 ("huber", "l1", "l2")
         self.huber_delta = 1.0  # Huber损失阈值参数
+        
+        # 几何正则化参数
+        self.geometry_reg_enabled = False  # 启用几何正则化
+        self.geometry_reg_weight = 0.01  # 几何正则化权重
+        self.geometry_reg_k_neighbors = 16  # PCA分析的邻居数量
+        self.geometry_reg_enable_threshold = 5000  # 开始正则化的迭代阈值
+        self.geometry_reg_min_eigenvalue_ratio = 0.1  # 最小特征值比率
+        
         super().__init__(parser, "Optimization Parameters")
 
 
