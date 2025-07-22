@@ -4,32 +4,59 @@
 
 ## 主要功能 (Features)
 
+### 🎯 核心技术特性
 *   **高质量实时渲染**: 基于 3D Gaussian Splatting，实现照片级的实时渲染效果
 *   **GT-DCA外观增强**: 集成GT-DCA（Geometry-guided Track-based Deformable Cross-Attention）模块，提供增强的外观建模能力
 *   **几何约束系统**: 集成多尺度几何约束，提升重建精度和一致性
+*   **PyTorch 核心**: 完全使用 PyTorch 构建，易于理解、修改和扩展
+
+### 🚀 GT-DCA 增强外观建模
+*   **两阶段处理流程**: 几何引导 + 可变形采样的完整外观建模管道
+*   **几何引导模块**: 利用2D轨迹点通过交叉注意力机制注入几何上下文
+*   **可变形采样模块**: 预测采样偏移量和权重，从2D特征图进行自适应采样
+*   **轨迹质量评估**: 智能评估和管理特征轨迹质量，确保建模稳定性
+*   **性能优化**: 支持特征缓存、混合精度训练和内存优化策略
+
+### 🔧 几何约束系统
 *   **自适应权重调整**: 动态调整约束权重，优化训练过程
 *   **轨迹管理**: 智能相机轨迹管理，提升多视角一致性
 *   **重投影验证**: 实时重投影误差验证，确保几何准确性
+*   **多尺度约束**: 在多个分辨率尺度上保持几何约束的一致性
+
+### 🛠️ 工程特性
 *   **端到端工作流**: 支持从 COLMAP 数据集直接进行训练、渲染和评估
 *   **置信度评估**: 集成置信度信息，提升渲染的稳定性和准确性
-*   **PyTorch 核心**: 完全使用 PyTorch 构建，易于理解、修改和扩展
+*   **模块化设计**: 清晰的接口设计，支持独立使用和扩展
+*   **错误处理**: 完善的降级机制，确保系统稳定性
 
 ## 先决条件 (Prerequisites)
 
 在开始之前，请确保你的系统满足以下要求：
+
+### 🖥️ 系统要求
 *   **操作系统**: Linux (推荐) 或 Windows
-*   **GPU**: 支持 CUDA 11.8 或更高版本的 NVIDIA GPU (推荐 RTX 3080 或更高)
+*   **GPU**: 支持 CUDA 的 NVIDIA GPU (推荐 RTX 3070 或更高)
 *   **内存**: 至少 16GB RAM，推荐 32GB
 *   **存储**: 至少 10GB 可用空间
-*   **软件**:
-    *   Anaconda 或 Miniconda
-    *   Git
-    *   NVIDIA CUDA Toolkit 11.8+
-    *   Visual Studio Build Tools (Windows)
+
+### 📦 软件依赖
+*   **Python**: Python 3.8+ (推荐 3.9)
+*   **包管理器**: Anaconda 或 Miniconda
+*   **版本控制**: Git
+*   **构建工具**: 
+    *   Linux: GCC 7+ 或 Clang 6+
+    *   Windows: Visual Studio Build Tools 2019+
+
+### 🚀 GPU 支持
+*   **CUDA**: 11.8+ (自动通过 PyTorch 安装)
+*   **显存**: 至少 8GB (GT-DCA 推荐 12GB+)
+*   **计算能力**: 6.0+ (Pascal 架构或更新)
 
 ## 安装 (Installation)
 
-### 1. 克隆仓库
+### 🚀 快速安装
+
+#### 1. 克隆仓库
 
 ```bash
 # 注意：--recursive 参数是必需的，用于克隆所有子模块
@@ -37,50 +64,112 @@ git clone --recursive https://github.com/CPy255/GeoTrack-GS.git
 cd GeoTrack-GS
 ```
 
-### 2. 创建并激活 Conda 环境
+#### 2. 创建并激活 Conda 环境
 
 ```bash
+# 创建环境
 conda env create -f environment.yml
+conda activate geotrack
+
+# 或者手动创建环境
+conda create -n geotrack python=3.9 -y
 conda activate geotrack
 ```
 
-### 3. 安装 PyTorch CUDA 环境
-
-确保安装支持 CUDA 的 PyTorch 版本：
+#### 3. 安装 PyTorch 和依赖
 
 ```bash
-# 对于 CUDA 11.8
+# 自动检测并安装合适的 PyTorch 版本
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# 对于 CUDA 12.1
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 安装其他依赖
+pip install -r requirements.txt
 
-# 验证 CUDA 安装
+# 验证 GPU 支持
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}, Device count: {torch.cuda.device_count()}')"
 ```
 
-### 4. 构建自定义 CUDA 子模块
-
-本项目需要自定义的 CUDA 核心。请运行以下命令来构建和安装它们：
+#### 4. 构建扩展模块
 
 ```bash
-# 构建差分高斯光栅化模块
+# 构建差分高斯光栅化模块（支持置信度）
 cd submodules/diff-gaussian-rasterization-confidence
-python setup.py install
+pip install .
 cd ../..
 
 # 构建简单 KNN 模块
 cd submodules/simple-knn
-python setup.py install
+pip install .
 cd ../..
 ```
 
-### 5. 验证安装
-
-运行测试脚本验证所有模块是否正确安装：
+#### 5. 验证安装
 
 ```bash
+# 运行模块测试
 python debug/test_modules.py
+
+# 验证 GT-DCA 模块
+python -c "from gt_dca import GTDCAModule; print('✅ GT-DCA 模块加载成功')"
+
+# 验证几何约束模块
+python -c "from geometric_constraints import ConstraintEngine; print('✅ 几何约束模块加载成功')"
+```
+
+### 🔧 高级安装选项
+
+#### 开发者安装
+
+```bash
+# 以开发模式安装，支持代码修改
+cd submodules/diff-gaussian-rasterization-confidence
+pip install -e .
+cd ../..
+
+cd submodules/simple-knn
+pip install -e .
+cd ../..
+
+# 安装开发工具
+pip install pytest black flake8 mypy
+```
+
+#### Docker 安装
+
+```bash
+# 构建 Docker 镜像
+docker build -t geotrack-gs .
+
+# 运行容器
+docker run --gpus all -it -v $(pwd):/workspace geotrack-gs
+```
+
+#### 故障排除
+
+**常见问题解决：**
+
+```bash
+# 如果 CUDA 版本不匹配
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# 如果编译失败，尝试清理缓存
+pip cache purge
+python -m pip install --upgrade pip setuptools wheel
+
+# 如果内存不足，使用单线程编译
+export MAX_JOBS=1
+cd submodules/diff-gaussian-rasterization-confidence
+pip install .
+
+# 验证安装状态
+python -c "
+import torch
+from gt_dca import GTDCAModule
+from geometric_constraints import ConstraintEngine
+print('✅ 所有模块安装成功')
+print(f'PyTorch 版本: {torch.__version__}')
+print(f'CUDA 可用: {torch.cuda.is_available()}')
+"
 ```
 
 ## 使用方法 (Usage)
@@ -532,22 +621,61 @@ python train.py -s data/tandt/train -m output/tandt_custom \
 python -c "from geometric_constraints.config import load_config; print(load_config())"
 ```
 
-### 6. GT-DCA详细说明
+### 6. GT-DCA 详细说明
 
-#### GT-DCA模块介绍
-GT-DCA（Geometry-guided Track-based Deformable Cross-Attention）是本项目的核心创新功能，它通过以下两个阶段提供增强的外观建模：
+#### 🔬 GT-DCA 模块架构
+
+GT-DCA（Geometry-guided Track-based Deformable Cross-Attention）是本项目的核心创新功能，采用模块化设计，包含以下核心组件：
+
+**核心模块结构:**
+```
+gt_dca/
+├── core/                    # 核心接口和数据结构
+│   ├── interfaces.py        # 抽象接口定义
+│   └── data_structures.py   # 数据结构定义
+├── modules/                 # 主要功能模块
+│   ├── gt_dca_module.py     # 主模块集成
+│   ├── base_appearance_generator.py      # 基础外观特征生成
+│   ├── geometry_guided_module.py         # 几何引导模块
+│   └── deformable_sampling_module.py     # 可变形采样模块
+├── integration/             # 系统集成
+│   ├── gaussian_model_extension.py       # 高斯模型扩展
+│   └── fallback_handler.py              # 降级处理
+└── utils/                   # 工具函数
+    ├── tensor_utils.py      # 张量操作工具
+    ├── validation.py        # 输入验证
+    └── error_handling.py    # 错误处理
+```
+
+#### 🚀 两阶段处理流程
 
 **阶段1: 几何引导 (Geometry Guidance)**
-- 从3D高斯基元生成基础外观特征作为查询向量
-- 使用交叉注意力机制注入几何上下文信息
-- 利用2D轨迹点提供几何引导
+1. **基础特征生成**: 从3D高斯基元生成可学习的基础外观特征作为查询向量
+2. **几何上下文提取**: 从2D轨迹点提取几何上下文信息
+3. **交叉注意力处理**: 使用多头交叉注意力机制将几何上下文注入查询向量
 
 **阶段2: 可变形采样 (Deformable Sampling)**
-- 预测采样偏移量和注意力权重
-- 从2D特征图进行可变形采样
-- 聚合加权特征生成最终的增强外观特征
+1. **偏移预测**: 基于几何引导特征预测采样偏移量
+2. **权重计算**: 计算每个采样点的注意力权重
+3. **特征采样**: 从2D特征图进行可变形采样
+4. **特征聚合**: 加权聚合采样特征生成最终的增强外观特征
 
-#### GT-DCA配置建议
+#### ⚙️ 配置参数详解
+
+**核心配置参数:**
+
+| 参数 | 默认值 | 说明 | 推荐范围 |
+|------|--------|------|----------|
+| `feature_dim` | 256 | GT-DCA特征维度 | 64-512 |
+| `hidden_dim` | 128 | MLP隐藏层维度 | 32-256 |
+| `num_sample_points` | 8 | 可变形采样点数量 | 2-16 |
+| `attention_heads` | 8 | 交叉注意力头数 | 2-16 |
+| `confidence_threshold` | 0.5 | 轨迹点置信度阈值 | 0.3-0.8 |
+| `min_track_points` | 4 | 最小轨迹点数量 | 3-10 |
+| `dropout_rate` | 0.1 | Dropout率 | 0.0-0.3 |
+| `enable_caching` | False | 启用特征缓存 | True/False |
+
+#### 🎯 配置建议
 
 **基础配置（适用于大多数场景）:**
 ```bash
@@ -555,7 +683,8 @@ python train.py -s /path/to/dataset -m output/model \
     --use_gt_dca \
     --gt_dca_feature_dim 256 \
     --gt_dca_num_sample_points 8 \
-    --gt_dca_attention_heads 8
+    --gt_dca_attention_heads 8 \
+    --gt_dca_enable_caching
 ```
 
 **高质量配置（适用于复杂场景）:**
@@ -566,7 +695,8 @@ python train.py -s /path/to/dataset -m output/model \
     --gt_dca_num_sample_points 16 \
     --gt_dca_attention_heads 16 \
     --gt_dca_enable_caching \
-    --gt_dca_dropout_rate 0.05
+    --gt_dca_dropout_rate 0.05 \
+    --gt_dca_confidence_threshold 0.6
 ```
 
 **内存优化配置（适用于GPU内存有限的情况）:**
@@ -576,52 +706,442 @@ python train.py -s /path/to/dataset -m output/model \
     --gt_dca_feature_dim 128 \
     --gt_dca_num_sample_points 4 \
     --gt_dca_attention_heads 4 \
-    --gt_dca_dropout_rate 0.2
+    --gt_dca_dropout_rate 0.2 \
+    --gt_dca_mixed_precision \
+    --gt_dca_amp_dtype fp16
 ```
 
-#### GT-DCA性能优化建议
+**Tesla T4 优化配置（16GB显存）:**
+```bash
+python train.py -s /path/to/dataset -m output/model \
+    --use_gt_dca \
+    --gt_dca_feature_dim 64 \
+    --gt_dca_hidden_dim 32 \
+    --gt_dca_num_sample_points 2 \
+    --gt_dca_attention_heads 2 \
+    --gt_dca_confidence_threshold 0.8 \
+    --gt_dca_enable_caching \
+    --gt_dca_mixed_precision
+```
 
-1. **特征维度选择**: 
-   - 256维适用于大多数场景
-   - 512维用于高质量重建
-   - 128维用于快速训练或内存受限环境
+#### 🔧 性能优化策略
 
-2. **采样点数量**:
-   - 8个采样点提供良好的质量/性能平衡
-   - 16个采样点用于精细细节重建
-   - 4个采样点用于快速训练
+**1. 内存优化**
+- **特征维度**: 根据GPU显存调整 `feature_dim` (64-512)
+- **采样点数**: 减少 `num_sample_points` 可显著降低内存使用
+- **混合精度**: 启用 `--gt_dca_mixed_precision` 减少显存占用
+- **缓存策略**: 合理使用 `--gt_dca_enable_caching`
 
-3. **缓存策略**:
-   - 启用缓存可提升训练速度
-   - 在内存受限时禁用缓存
+**2. 计算优化**
+- **注意力头数**: 平衡质量和速度，推荐 4-8 个头
+- **Dropout**: 训练时使用 0.1，推理时设为 0.0
+- **批处理**: 通过轨迹点过滤减少计算量
 
-### 7. 批量处理
+**3. 质量优化**
+- **置信度阈值**: 提高阈值可过滤低质量轨迹点
+- **最小轨迹点**: 确保足够的几何约束信息
+- **特征维度**: 更高维度通常带来更好质量
 
-处理多个数据集：
+#### 🛠️ 使用示例
 
+**基本使用:**
+```python
+from gt_dca import GTDCAModule
+from gt_dca.core.data_structures import GTDCAConfig
+
+# 创建配置
+config = GTDCAConfig(
+    feature_dim=256,
+    num_sample_points=8,
+    attention_heads=8,
+    enable_caching=True
+)
+
+# 初始化模块
+gt_dca = GTDCAModule(config)
+
+# 前向传播
+appearance_feature = gt_dca.forward(
+    gaussian_primitives=gaussians,
+    track_points_2d=track_points,
+    feature_map_2d=feature_map,
+    projection_coords=coords
+)
+
+# 获取增强特征
+enhanced_features = appearance_feature.get_final_features()
+```
+
+**性能监控:**
+```python
+# 获取性能统计
+stats = gt_dca.get_performance_stats()
+print(f"前向调用次数: {stats['forward_calls']}")
+print(f"平均处理时间: {stats['average_processing_time']:.4f}s")
+
+# 获取内存使用情况
+memory_info = gt_dca.get_memory_usage()
+print(f"GPU内存使用: {memory_info['allocated']:.2f}MB")
+
+# 分析几何上下文质量
+context_analysis = gt_dca.analyze_geometric_context(track_points)
+print(f"有效轨迹点: {context_analysis['valid_points']}")
+print(f"平均置信度: {context_analysis['average_confidence']:.3f}")
+```
+
+#### 🐛 故障排除
+
+**常见问题及解决方案:**
+
+1. **轨迹点不足错误**
+```bash
+❌ 有效轨迹点数量(2)少于最小要求(4)！
+```
+**解决方案:**
+- 降低 `--gt_dca_confidence_threshold`
+- 减少 `--gt_dca_min_track_points`
+- 检查轨迹文件质量
+
+2. **内存不足错误**
+```bash
+RuntimeError: CUDA out of memory
+```
+**解决方案:**
+- 减少 `--gt_dca_feature_dim`
+- 降低 `--gt_dca_num_sample_points`
+- 启用 `--gt_dca_mixed_precision`
+
+3. **性能问题**
+```bash
+GT-DCA处理速度过慢
+```
+**解决方案:**
+- 启用 `--gt_dca_enable_caching`
+- 减少 `--gt_dca_attention_heads`
+- 优化轨迹点过滤阈值
+
+### 7. 批量处理和工作流
+
+#### 🔄 批量训练工作流
+
+**标准批量训练:**
 ```bash
 # 批量GT-DCA训练多个场景
-for scene in tandt truck train; do
+scenes=("tandt" "truck" "train" "garden" "bicycle")
+for scene in "${scenes[@]}"; do
+    echo "🚀 开始训练场景: $scene"
     python train.py -s data/$scene/train -m output/$scene \
         --use_gt_dca \
         --gt_dca_feature_dim 256 \
-        --gt_dca_num_sample_points 8
+        --gt_dca_num_sample_points 8 \
+        --gt_dca_enable_caching \
+        --iterations 25000
+    echo "✅ 场景 $scene 训练完成"
 done
+```
 
+**高质量批量训练:**
+```bash
 # 批量结合几何约束和GT-DCA训练
-for scene in tandt truck train; do
-    python train.py -s data/$scene/train -m output/$scene \
+for scene in tandt truck train garden bicycle; do
+    echo "🎯 高质量训练场景: $scene"
+    python train.py -s data/$scene/train -m output/${scene}_hq \
         --enable_geometric_constraints \
         --use_gt_dca \
         --multiscale_constraints \
         --adaptive_weighting \
-        --gt_dca_feature_dim 256
+        --gt_dca_feature_dim 512 \
+        --gt_dca_num_sample_points 16 \
+        --gt_dca_attention_heads 16 \
+        --constraint_weight 0.1 \
+        --iterations 30000
+    echo "✅ 高质量场景 $scene 训练完成"
+done
+```
+
+**内存优化批量训练:**
+```bash
+# 适用于GPU内存有限的情况
+for scene in tandt truck train; do
+    echo "💾 内存优化训练场景: $scene"
+    python train.py -s data/$scene/train -m output/${scene}_opt \
+        --use_gt_dca \
+        --gt_dca_feature_dim 128 \
+        --gt_dca_num_sample_points 4 \
+        --gt_dca_attention_heads 4 \
+        --gt_dca_mixed_precision \
+        --gt_dca_enable_caching \
+        --iterations 20000
+done
+```
+
+#### 📊 批量评估和比较
+
+**批量评估脚本:**
+```bash
+# 批量评估所有训练好的模型
+echo "📊 开始批量评估..."
+for scene in tandt truck train garden bicycle; do
+    echo "评估场景: $scene"
+    
+    # 标准模型评估
+    python full_eval.py -m output/$scene --detailed_report > results/${scene}_standard.txt
+    
+    # GT-DCA模型评估
+    if [ -d "output/${scene}_gtdca" ]; then
+        python full_eval.py -m output/${scene}_gtdca --detailed_report > results/${scene}_gtdca.txt
+    fi
+    
+    # 高质量模型评估
+    if [ -d "output/${scene}_hq" ]; then
+        python full_eval.py -m output/${scene}_hq --detailed_report > results/${scene}_hq.txt
+    fi
 done
 
-# 批量评估
-for scene in tandt truck train; do
-    python full_eval.py -m output/$scene --detailed_report
+echo "✅ 批量评估完成，结果保存在 results/ 目录"
+```
+
+**性能比较脚本:**
+```python
+# compare_results.py - 批量结果比较工具
+import os
+import json
+import pandas as pd
+from pathlib import Path
+
+def compare_models():
+    """比较不同模型的性能指标"""
+    results_dir = Path("results")
+    scenes = ["tandt", "truck", "train", "garden", "bicycle"]
+    models = ["standard", "gtdca", "hq"]
+    
+    comparison_data = []
+    
+    for scene in scenes:
+        for model in models:
+            result_file = results_dir / f"{scene}_{model}.txt"
+            if result_file.exists():
+                # 解析评估结果
+                metrics = parse_evaluation_results(result_file)
+                comparison_data.append({
+                    "scene": scene,
+                    "model": model,
+                    **metrics
+                })
+    
+    # 创建比较表格
+    df = pd.DataFrame(comparison_data)
+    df.to_csv("model_comparison.csv", index=False)
+    print("📊 模型比较结果已保存到 model_comparison.csv")
+
+if __name__ == "__main__":
+    compare_models()
+```
+
+#### 🔧 自动化工作流
+
+**完整训练-渲染-评估流水线:**
+```bash
+#!/bin/bash
+# full_pipeline.sh - 完整的训练评估流水线
+
+set -e  # 遇到错误时退出
+
+SCENES=("tandt" "truck" "train")
+DATA_DIR="data"
+OUTPUT_DIR="output"
+RESULTS_DIR="results"
+
+# 创建必要的目录
+mkdir -p $OUTPUT_DIR $RESULTS_DIR
+
+echo "🚀 开始完整的训练评估流水线..."
+
+for scene in "${SCENES[@]}"; do
+    echo "=" "处理场景: $scene" "="
+    
+    # 1. 训练模型
+    echo "🎯 训练 GT-DCA 模型..."
+    python train.py \
+        -s $DATA_DIR/$scene/train \
+        -m $OUTPUT_DIR/${scene}_gtdca \
+        --use_gt_dca \
+        --gt_dca_feature_dim 256 \
+        --gt_dca_num_sample_points 8 \
+        --gt_dca_enable_caching \
+        --iterations 25000
+    
+    # 2. 渲染结果
+    echo "🎨 渲染测试图像..."
+    python render.py \
+        -m $OUTPUT_DIR/${scene}_gtdca \
+        --use_gt_dca \
+        --gt_dca_feature_dim 256 \
+        --gt_dca_num_sample_points 8
+    
+    # 3. 评估性能
+    echo "📊 评估模型性能..."
+    python full_eval.py \
+        -m $OUTPUT_DIR/${scene}_gtdca \
+        --detailed_report > $RESULTS_DIR/${scene}_gtdca_results.txt
+    
+    echo "✅ 场景 $scene 处理完成"
 done
+
+echo "🎉 所有场景处理完成！"
+echo "📁 结果保存在: $OUTPUT_DIR"
+echo "📊 评估报告保存在: $RESULTS_DIR"
+```
+
+#### 📈 监控和日志
+
+**训练监控脚本:**
+```python
+# monitor_training.py - 训练过程监控
+import time
+import psutil
+import GPUtil
+import logging
+from pathlib import Path
+
+def monitor_training(model_path, interval=60):
+    """监控训练过程的资源使用情况"""
+    log_file = Path(model_path) / "training_monitor.log"
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s'
+    )
+    
+    while True:
+        # CPU 使用率
+        cpu_percent = psutil.cpu_percent()
+        
+        # 内存使用率
+        memory = psutil.virtual_memory()
+        
+        # GPU 使用率
+        gpus = GPUtil.getGPUs()
+        gpu_info = []
+        for gpu in gpus:
+            gpu_info.append({
+                'id': gpu.id,
+                'load': gpu.load * 100,
+                'memory_used': gpu.memoryUsed,
+                'memory_total': gpu.memoryTotal,
+                'temperature': gpu.temperature
+            })
+        
+        # 记录日志
+        logging.info(f"CPU: {cpu_percent}%, Memory: {memory.percent}%")
+        for gpu in gpu_info:
+            logging.info(f"GPU {gpu['id']}: {gpu['load']:.1f}%, "
+                        f"Memory: {gpu['memory_used']}/{gpu['memory_total']}MB, "
+                        f"Temp: {gpu['temperature']}°C")
+        
+        time.sleep(interval)
+
+if __name__ == "__main__":
+    import sys
+    model_path = sys.argv[1] if len(sys.argv) > 1 else "output/current"
+    monitor_training(model_path)
+```
+
+#### 🔄 实验管理
+
+**实验配置管理:**
+```python
+# experiment_manager.py - 实验配置和管理
+import json
+import yaml
+from datetime import datetime
+from pathlib import Path
+
+class ExperimentManager:
+    """实验配置和结果管理器"""
+    
+    def __init__(self, experiments_dir="experiments"):
+        self.experiments_dir = Path(experiments_dir)
+        self.experiments_dir.mkdir(exist_ok=True)
+    
+    def create_experiment(self, name, config):
+        """创建新实验"""
+        exp_dir = self.experiments_dir / name
+        exp_dir.mkdir(exist_ok=True)
+        
+        # 保存实验配置
+        config_file = exp_dir / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        
+        # 创建实验元数据
+        metadata = {
+            "name": name,
+            "created_at": datetime.now().isoformat(),
+            "status": "created",
+            "config": config
+        }
+        
+        metadata_file = exp_dir / "metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return exp_dir
+    
+    def run_experiment(self, name):
+        """运行实验"""
+        exp_dir = self.experiments_dir / name
+        config_file = exp_dir / "config.yaml"
+        
+        if not config_file.exists():
+            raise FileNotFoundError(f"实验配置文件不存在: {config_file}")
+        
+        # 加载配置
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # 构建训练命令
+        cmd_parts = ["python", "train.py"]
+        cmd_parts.extend(["-s", config["source_path"]])
+        cmd_parts.extend(["-m", str(exp_dir / "model")])
+        
+        # 添加GT-DCA参数
+        if config.get("use_gt_dca", False):
+            cmd_parts.append("--use_gt_dca")
+            for key, value in config.get("gt_dca_params", {}).items():
+                cmd_parts.extend([f"--gt_dca_{key}", str(value)])
+        
+        # 添加几何约束参数
+        if config.get("enable_geometric_constraints", False):
+            cmd_parts.append("--enable_geometric_constraints")
+            for key, value in config.get("constraint_params", {}).items():
+                cmd_parts.extend([f"--{key}", str(value)])
+        
+        print(f"🚀 运行实验: {name}")
+        print(f"📝 命令: {' '.join(cmd_parts)}")
+        
+        # 这里可以添加实际的命令执行逻辑
+        # subprocess.run(cmd_parts)
+
+# 使用示例
+if __name__ == "__main__":
+    manager = ExperimentManager()
+    
+    # 创建GT-DCA实验配置
+    gt_dca_config = {
+        "source_path": "data/tandt/train",
+        "use_gt_dca": True,
+        "gt_dca_params": {
+            "feature_dim": 256,
+            "num_sample_points": 8,
+            "attention_heads": 8,
+            "enable_caching": True
+        },
+        "iterations": 25000
+    }
+    
+    manager.create_experiment("gt_dca_baseline", gt_dca_config)
+    manager.run_experiment("gt_dca_baseline")
 ```
 
 ## 如何贡献 (Contributing)
