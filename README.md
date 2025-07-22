@@ -23,6 +23,12 @@
 *   **重投影验证**: 实时重投影误差验证，确保几何准确性
 *   **多尺度约束**: 在多个分辨率尺度上保持几何约束的一致性
 
+### 🎯 几何先验各向异性正则化 (NEW!)
+*   **局部几何感知**: 通过PCA分析K近邻高斯基元，提取局部几何结构
+*   **各向异性约束**: 自适应地正则化每个高斯基元的形状，使其与局部几何对齐
+*   **三重约束机制**: 主轴对齐 + 尺度比例约束 + 过度各向异性惩罚
+*   **视图稀疏优化**: 显著减少视图稀疏场景下的边缘模糊和细节损失
+
 ### 🛠️ 工程特性
 *   **端到端工作流**: 支持从 COLMAP 数据集直接进行训练、渲染和评估
 *   **置信度评估**: 集成置信度信息，提升渲染的稳定性和准确性
@@ -439,6 +445,39 @@ python train.py -s data/tandt/train -m output/tandt_full_geo \
     --iterations 25000
 ```
 
+#### 几何正则化训练 (NEW!)
+启用基于几何先验的各向异性正则化：
+
+```bash
+# 基础几何正则化训练
+python train.py -s data/tandt/train -m output/tandt_geometry_reg \
+    --geometry_reg_enabled \
+    --geometry_reg_weight 0.01 \
+    --geometry_reg_k_neighbors 16
+
+# 高质量几何正则化训练  
+python train.py -s data/tandt/train -m output/tandt_geometry_reg_hq \
+    --geometry_reg_enabled \
+    --geometry_reg_weight 0.02 \
+    --geometry_reg_k_neighbors 24 \
+    --geometry_reg_enable_threshold 3000 \
+    --iterations 30000
+
+# 结合所有功能的终极训练配置
+python train.py -s data/tandt/train -m output/tandt_ultimate \
+    --enable_geometric_constraints \
+    --use_gt_dca \
+    --geometry_reg_enabled \
+    --multiscale_constraints \
+    --adaptive_weighting \
+    --gt_dca_feature_dim 256 \
+    --gt_dca_num_sample_points 8 \
+    --geometry_reg_weight 0.01 \
+    --geometry_reg_k_neighbors 16 \
+    --constraint_weight 0.1 \
+    --iterations 30000
+```
+
 #### 训练参数说明
 
 **基础参数:**
@@ -464,6 +503,13 @@ python train.py -s data/tandt/train -m output/tandt_full_geo \
 *   `--trajectory_management`: 启用轨迹管理
 *   `--reprojection_validation`: 启用重投影验证
 *   `--constraint_weight`: 几何约束权重 (默认: 0.1)
+
+**几何正则化参数 (NEW!):**
+*   `--geometry_reg_enabled`: 启用几何先验正则化
+*   `--geometry_reg_weight`: 几何正则化权重 (默认: 0.01)
+*   `--geometry_reg_k_neighbors`: PCA分析的K近邻数量 (默认: 16)
+*   `--geometry_reg_enable_threshold`: 开始正则化的迭代阈值 (默认: 5000)
+*   `--geometry_reg_min_eigenvalue_ratio`: 最小特征值比率 (默认: 0.1)
 
 要查看所有可用的训练选项，请运行：
 ```bash
@@ -820,7 +866,115 @@ GT-DCA处理速度过慢
 - 减少 `--gt_dca_attention_heads`
 - 优化轨迹点过滤阈值
 
-### 7. 批量处理和工作流
+### 7. 几何先验各向异性正则化详解 (NEW!)
+
+#### 🎯 技术原理
+
+几何先验各向异性正则化是本项目的最新创新功能，旨在解决标准3DGS在视图稀疏情况下的形态不匹配问题。
+
+**核心思想：**
+- 在标准3DGS中，高斯基元的形状仅受渲染颜色的隐式监督
+- 视图稀疏时，可能出现"胖"椭球表示薄平面的情况，导致边缘模糊
+- 通过引入局部几何结构作为先验知识，显式约束高斯形状
+
+#### 🔬 算法流程
+
+**两阶段处理：**
+
+1. **局部几何感知 (Local Geometry Perception)**
+   - 对每个高斯基元，寻找其K个最近邻高斯基元
+   - 对邻居位置进行主成分分析(PCA)，提取局部主方向
+   - 获得局部几何结构的特征值和特征向量
+
+2. **各向异性约束 (Anisotropic Constraint)**
+   - **主轴对齐约束**: 使高斯主轴与局部几何主方向对齐
+   - **尺度比例约束**: 调整高斯尺度比例匹配局部几何特征值比例
+   - **过度各向异性惩罚**: 防止高斯过度拉伸，保持稳定性
+
+#### ⚙️ 参数配置详解
+
+**核心参数说明:**
+
+| 参数 | 默认值 | 说明 | 推荐范围 |
+|------|--------|------|----------|
+| `geometry_reg_weight` | 0.01 | 正则化权重 | 0.005-0.05 |
+| `geometry_reg_k_neighbors` | 16 | K近邻数量 | 8-32 |
+| `geometry_reg_enable_threshold` | 5000 | 启用迭代阈值 | 3000-7000 |
+| `geometry_reg_min_eigenvalue_ratio` | 0.1 | 最小特征值比率 | 0.05-0.2 |
+
+#### 🎯 使用建议
+
+**基础使用场景：**
+```bash
+# 视图稀疏的室内场景
+python train.py -s data/indoor_scene -m output/indoor_reg \
+    --geometry_reg_enabled \
+    --geometry_reg_weight 0.015 \
+    --geometry_reg_k_neighbors 20
+```
+
+**高质量重建场景：**
+```bash
+# 建筑物外墙等平面丰富的场景
+python train.py -s data/building -m output/building_reg \
+    --geometry_reg_enabled \
+    --geometry_reg_weight 0.025 \
+    --geometry_reg_k_neighbors 24 \
+    --geometry_reg_enable_threshold 3000
+```
+
+**与其他功能结合：**
+```bash
+# 结合GT-DCA和几何约束的完整配置
+python train.py -s data/complex_scene -m output/complete \
+    --enable_geometric_constraints \
+    --use_gt_dca \
+    --geometry_reg_enabled \
+    --gt_dca_feature_dim 256 \
+    --geometry_reg_weight 0.01 \
+    --geometry_reg_k_neighbors 16 \
+    --constraint_weight 0.1
+```
+
+#### 📊 性能监控
+
+几何正则化损失会被记录到TensorBoard中：
+
+```bash
+# 启动TensorBoard查看训练过程
+tensorboard --logdir output/your_model/
+
+# 关注以下指标：
+# - train_loss_patches/geometry_regularization_loss
+# - train_loss_patches/total_loss
+```
+
+#### 🔧 调优指南
+
+**内存优化：**
+- 减少`k_neighbors`数量可显著降低内存使用
+- 适合GPU内存有限的场景
+
+**质量优化：**
+- 增加`geometry_reg_weight`可增强正则化效果
+- 降低`enable_threshold`可更早开始正则化
+
+**稳定性优化：**
+- 调整`min_eigenvalue_ratio`防止数值不稳定
+- 渐进式增加正则化权重
+
+#### 🐛 常见问题
+
+**Q: 几何正则化损失为0？**
+A: 检查`enable_threshold`设置，确保训练已达到启用阈值
+
+**Q: 训练速度明显变慢？**
+A: 减少`k_neighbors`或启用simple_knn加速
+
+**Q: 正则化效果不明显？**  
+A: 适当增加`geometry_reg_weight`，或降低`enable_threshold`
+
+### 8. 批量处理和工作流
 
 #### 🔄 批量训练工作流
 
@@ -842,35 +996,43 @@ done
 
 **高质量批量训练:**
 ```bash
-# 批量结合几何约束和GT-DCA训练
+# 批量结合几何约束、GT-DCA和几何正则化训练  
 for scene in tandt truck train garden bicycle; do
-    echo "🎯 高质量训练场景: $scene"
-    python train.py -s data/$scene/train -m output/${scene}_hq \
+    echo "🎯 终极高质量训练场景: $scene"
+    python train.py -s data/$scene/train -m output/${scene}_ultimate \
         --enable_geometric_constraints \
         --use_gt_dca \
+        --geometry_reg_enabled \
         --multiscale_constraints \
         --adaptive_weighting \
         --gt_dca_feature_dim 512 \
         --gt_dca_num_sample_points 16 \
         --gt_dca_attention_heads 16 \
+        --geometry_reg_weight 0.015 \
+        --geometry_reg_k_neighbors 20 \
         --constraint_weight 0.1 \
         --iterations 30000
-    echo "✅ 高质量场景 $scene 训练完成"
+    echo "✅ 终极场景 $scene 训练完成"
 done
 ```
 
 **内存优化批量训练:**
 ```bash
-# 适用于GPU内存有限的情况
+# 适用于GPU内存有限的情况，包含所有功能的轻量版
 for scene in tandt truck train; do
     echo "💾 内存优化训练场景: $scene"
     python train.py -s data/$scene/train -m output/${scene}_opt \
+        --enable_geometric_constraints \
         --use_gt_dca \
+        --geometry_reg_enabled \
         --gt_dca_feature_dim 128 \
         --gt_dca_num_sample_points 4 \
         --gt_dca_attention_heads 4 \
         --gt_dca_mixed_precision \
         --gt_dca_enable_caching \
+        --geometry_reg_weight 0.008 \
+        --geometry_reg_k_neighbors 12 \
+        --constraint_weight 0.08 \
         --iterations 20000
 done
 ```
