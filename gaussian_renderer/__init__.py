@@ -89,7 +89,7 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
                 pc._gt_dca_iter_counter = 0
             pc._gt_dca_iter_counter += 1
             
-            if pc._gt_dca_iter_counter % 50 == 0:  # Every 50 iterations for T4
+            if pc._gt_dca_iter_counter % 400 == 0:  # Every 50 iterations for T4
                 try:
                     # Use GT-DCA enhanced appearance features
                     with torch.no_grad():
@@ -109,7 +109,7 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
                         else:
                             raise ValueError(f"Unsupported GT-DCA feature dimension: {feature_dim}")
                         
-                        if pc._gt_dca_iter_counter % 100 == 0:  # Reduce logging frequency
+                        if pc._gt_dca_iter_counter % 800 == 0:  # Reduce logging frequency
                             print(f"🎨 GT-DCA特征渲染，维度: {appearance_features.shape}")
                         
                     else:

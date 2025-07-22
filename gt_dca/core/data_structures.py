@@ -188,16 +188,16 @@ class GTDCAConfig:
     Provides centralized configuration management.
     """
     # 特征维度配置
-    feature_dim: int = 256                           # 基础特征维度
-    hidden_dim: int = 128                           # 隐藏层维度
+    feature_dim: int = 64                           # 基础特征维度
+    hidden_dim: int = 32                           # 隐藏层维度
     
     # 采样配置
-    num_sample_points: int = 8                      # 采样点数量
+    num_sample_points: int = 4                      # 采样点数量
     sampling_radius: float = 2.0                    # 采样半径
     
     # 几何引导配置
     use_cross_attention: bool = True                # 是否使用交叉注意力
-    attention_heads: int = 8                        # 注意力头数
+    attention_heads: int = 4                        # 注意力头数
     
     # 训练配置
     dropout_rate: float = 0.1                       # Dropout率
