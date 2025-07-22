@@ -27,6 +27,11 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation, chamfer
 import open3d as o3d
 from torch.optim.lr_scheduler import MultiStepLR
 
+# GT-DCA imports
+from gt_dca.core.data_structures import GTDCAConfig
+from gt_dca.modules.gt_dca_module import GTDCAModule
+from gt_dca.integration.gaussian_model_extension import GaussianModelGTDCAExtension
+
 
 class GaussianModel:
 
@@ -67,6 +72,22 @@ class GaussianModel:
         self.setup_functions()
         self.bg_color = torch.empty(0)
         self.confidence = torch.empty(0)
+        
+        # Task: 在GaussianModel中添加GT-DCA模块支持
+        # Task: 添加GT-DCA启用/禁用的配置选项
+        
+        # GT-DCA configuration and setup
+        self.use_gt_dca = getattr(args, 'use_gt_dca', False)  # Default to False for backward compatibility
+        self.gt_dca_config = getattr(args, 'gt_dca_config', None)
+        
+
+        
+        # Initialize GT-DCA components
+        self.gt_dca_module = None
+        self.gt_dca_extension = None
+        
+        if self.use_gt_dca:
+            self._setup_gt_dca_integration()
 
     def capture(self):
         return (
@@ -530,5 +551,176 @@ class GaussianModel:
         associated_centers = all_centers[min_dist_indices]
 
         return associated_centers
+
+    # === GT-DCA Integration Methods ===
+    
+    def _setup_gt_dca_integration(self):
+        """
+        设置GT-DCA集成
+        
+        Task: 在GaussianModel中添加GT-DCA模块支持
+        Requirements: 3.1, 3.2 - GT-DCA integration with existing 3DGS pipeline
+        """
+        try:
+            # Create GT-DCA configuration
+            if self.gt_dca_config is None:
+                self.gt_dca_config = GTDCAConfig()
+            
+            # Initialize GT-DCA module
+            self.gt_dca_module = GTDCAModule(self.gt_dca_config)
+
+            # Freeze GT-DCA parameters – we only use it for inference during rendering
+            self.gt_dca_module.eval()
+            for p in self.gt_dca_module.parameters():
+                p.requires_grad = False
+            
+            # Create integration extension
+            track_path = getattr(self.args, 'track_path', None) if hasattr(self, 'args') else None
+
+            
+            self.gt_dca_extension = GaussianModelGTDCAExtension(
+                gaussian_model=self,
+                config=self.gt_dca_config,
+                track_path=track_path
+            )
+            
+            # Setup the integration
+            self.gt_dca_extension.setup_gt_dca_integration(self.gt_dca_module)
+            
+            print(f"✅ GT-DCA模块已成功集成，配置: {self.gt_dca_config}")
+            
+        except Exception as e:
+            print(f"⚠️ GT-DCA集成失败: {e}")
+            self.use_gt_dca = False
+            self.gt_dca_module = None
+            self.gt_dca_extension = None
+    
+    def get_appearance_features(self, viewpoint_camera, use_gt_dca=None):
+        """
+        获取外观特征（GT-DCA增强或标准SH）
+        
+        Task: 实现get_appearance_features接口的增强版本
+        Requirements: 3.1, 3.2 - Enhanced appearance features interface
+        
+        Args:
+            viewpoint_camera: 视点相机参数
+            use_gt_dca: 是否使用GT-DCA增强（None时使用默认设置）
+            
+        Returns:
+            外观特征张量
+        """
+        # Determine whether to use GT-DCA
+        if use_gt_dca is None:
+            use_gt_dca = self.use_gt_dca
+        
+        # Check if GT-DCA is available and enabled
+        if (use_gt_dca and 
+            self.gt_dca_extension is not None and 
+            self.gt_dca_extension.is_gt_dca_enabled()):
+            
+            try:
+                return self.gt_dca_extension.get_appearance_features(
+                    viewpoint_camera=viewpoint_camera,
+                    use_gt_dca=True
+                )
+            except Exception as e:
+                print(f"⚠️ GT-DCA处理失败，回退到标准SH模型: {e}")
+                return self._get_standard_sh_features(viewpoint_camera)
+        else:
+            return self._get_standard_sh_features(viewpoint_camera)
+    
+    def _get_standard_sh_features(self, viewpoint_camera):
+        """
+        获取标准球谐函数特征
+        
+        Args:
+            viewpoint_camera: 视点相机参数
+            
+        Returns:
+            标准SH特征张量
+        """
+        # Return the standard SH features (existing implementation)
+        # This maintains compatibility with existing rendering pipeline
+        return self.get_features
+    
+    def enable_gt_dca(self):
+        """
+        启用GT-DCA功能
+        
+        Task: 添加GT-DCA启用/禁用的配置选项
+        """
+        if self.gt_dca_extension is not None:
+            self.use_gt_dca = True
+            self.gt_dca_extension.enable_gt_dca()
+            print("✅ GT-DCA功能已启用")
+        else:
+            print("⚠️ GT-DCA模块未初始化，无法启用")
+    
+    def disable_gt_dca(self):
+        """
+        禁用GT-DCA功能
+        
+        Task: 添加GT-DCA启用/禁用的配置选项
+        """
+        if self.gt_dca_extension is not None:
+            self.use_gt_dca = False
+            self.gt_dca_extension.disable_gt_dca()
+            print("✅ GT-DCA功能已禁用")
+        else:
+            print("⚠️ GT-DCA模块未初始化")
+    
+    def is_gt_dca_enabled(self):
+        """
+        检查GT-DCA是否启用
+        
+        Returns:
+            bool: GT-DCA是否启用
+        """
+        return (self.use_gt_dca and 
+                self.gt_dca_extension is not None and 
+                self.gt_dca_extension.is_gt_dca_enabled())
+    
+    def get_gt_dca_info(self):
+        """
+        获取GT-DCA模块信息
+        
+        Returns:
+            dict: GT-DCA模块状态和配置信息
+        """
+        if self.gt_dca_module is None:
+            return {"status": "not_initialized"}
+        
+        info = {
+            "status": "initialized",
+            "enabled": self.is_gt_dca_enabled(),
+            "config": self.gt_dca_config,
+        }
+        
+        if hasattr(self.gt_dca_module, 'get_module_info'):
+            info.update(self.gt_dca_module.get_module_info())
+        
+        return info
+    
+    def set_track_points(self, track_points):
+        """
+        设置轨迹点数据
+        
+        Args:
+            track_points: 轨迹点列表
+        """
+        if self.gt_dca_extension is not None:
+            self.gt_dca_extension.set_track_points(track_points)
+        else:
+            print("⚠️ GT-DCA模块未初始化，无法设置轨迹点")
+    
+    def invalidate_gt_dca_cache(self):
+        """
+        使GT-DCA缓存失效
+        """
+        if self.gt_dca_extension is not None:
+            self.gt_dca_extension.invalidate_cache()
+        
+        if self.gt_dca_module is not None and hasattr(self.gt_dca_module, 'clear_cache'):
+            self.gt_dca_module.clear_cache()
 
 

@@ -21,7 +21,7 @@ import torchvision
 from utils.general_utils import safe_state
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
-from gaussian_renderer import GaussianModel
+from scene.gaussian_model import GaussianModel
 import cv2
 import time
 from tqdm import tqdm
@@ -134,8 +134,46 @@ if __name__ == "__main__":
     parser.add_argument("--data_type", type=str, default="colmap", help="Type of dataset, e.g., 'colmap', 'blender', '360'")
     parser.add_argument("--fps", default=30, type=int)
     parser.add_argument("--render_depth", action="store_true")
+    
+    # Task: 添加GT-DCA启用/禁用的配置选项 - 渲染脚本支持
+    # GT-DCA: Add arguments for GT-DCA appearance modeling in rendering
+    parser.add_argument("--use_gt_dca", action="store_true", help="Enable GT-DCA enhanced appearance modeling during rendering.")
+    parser.add_argument("--gt_dca_feature_dim", type=int, default=256, help="GT-DCA feature dimension.")
+    parser.add_argument("--gt_dca_num_sample_points", type=int, default=8, help="Number of sampling points for GT-DCA deformable sampling.")
+    parser.add_argument("--gt_dca_hidden_dim", type=int, default=128, help="Hidden dimension for GT-DCA MLPs.")
+    parser.add_argument("--gt_dca_confidence_threshold", type=float, default=0.5, help="Confidence threshold for GT-DCA track points.")
+    parser.add_argument("--gt_dca_min_track_points", type=int, default=4, help="Minimum number of track points required for GT-DCA.")
+    parser.add_argument("--gt_dca_enable_caching", action="store_true", help="Enable GT-DCA feature caching for performance.")
+    parser.add_argument("--gt_dca_dropout_rate", type=float, default=0.1, help="Dropout rate for GT-DCA modules.")
+    parser.add_argument("--gt_dca_attention_heads", type=int, default=8, help="Number of attention heads for GT-DCA cross-attention.")
+    
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
+    
+    # Task: 添加GT-DCA启用/禁用的配置选项 - 渲染脚本GT-DCA配置
+    # GT-DCA: Setup GT-DCA configuration for rendering
+    if hasattr(args, 'use_gt_dca') and args.use_gt_dca:
+        from gt_dca.core.data_structures import GTDCAConfig
+        
+        # Create GT-DCA configuration from command line arguments
+        gt_dca_config = GTDCAConfig(
+            feature_dim=getattr(args, 'gt_dca_feature_dim', 256),
+            hidden_dim=getattr(args, 'gt_dca_hidden_dim', 128),
+            num_sample_points=getattr(args, 'gt_dca_num_sample_points', 8),
+            confidence_threshold=getattr(args, 'gt_dca_confidence_threshold', 0.5),
+            min_track_points=getattr(args, 'gt_dca_min_track_points', 4),
+            enable_caching=getattr(args, 'gt_dca_enable_caching', False),
+            dropout_rate=getattr(args, 'gt_dca_dropout_rate', 0.1),
+            attention_heads=getattr(args, 'gt_dca_attention_heads', 8)
+        )
+        
+        # Attach GT-DCA configuration to args
+        args.gt_dca_config = gt_dca_config
+        
+        print(f"✅ GT-DCA渲染配置已设置: {gt_dca_config}")
+    else:
+        args.use_gt_dca = False
+        args.gt_dca_config = None
 
     # Initialize system state (RNG)
     safe_state(args.quiet)

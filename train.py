@@ -136,6 +136,17 @@ def training(dataset, opt, pipe, args):
             viewpoint_stack = scene.getTrainCameras().copy()
 
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        
+        # Task: 修改渲染流程以使用增强的外观特征
+        # Task: 确保与现有SH系数的兼容性
+        # Requirements: 3.3 - Enhanced rendering with GT-DCA features
+        
+        # Update GT-DCA cache if needed (for training efficiency)
+        if hasattr(gaussians, 'is_gt_dca_enabled') and gaussians.is_gt_dca_enabled():
+            # Invalidate cache periodically to ensure fresh features
+            if iteration % 100 == 0:
+                gaussians.invalidate_gt_dca_cache()
+        
         render_pkg = render(viewpoint_cam, gaussians, pipe, background)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
@@ -286,9 +297,15 @@ def training(dataset, opt, pipe, args):
                         print(f"[GeoTrack-GS] Warning: Validation failed at iteration {iteration}: {e}")
 
             # Log and save
+            # Task: 确保与现有SH系数的兼容性 - Add GT-DCA performance logging
+            gt_dca_info = None
+            if hasattr(gaussians, 'get_gt_dca_info'):
+                gt_dca_info = gaussians.get_gt_dca_info()
+            
             training_report(tb_writer, iteration, Ll1, loss, l1_loss,
                             testing_iterations, scene, render, (pipe, background), 
-                            geometric_constraint_loss if 'geometric_constraint_loss' in locals() else None)
+                            geometric_constraint_loss if 'geometric_constraint_loss' in locals() else None,
+                            gt_dca_info)
 
             if iteration > first_iter and (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -345,13 +362,34 @@ def prepare_output_and_logger(args):
 
 
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs, geometric_constraint_loss=None):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations, scene : Scene, renderFunc, renderArgs, geometric_constraint_loss=None, gt_dca_info=None):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
         # GeoTrack-GS: 记录几何约束损失
         if geometric_constraint_loss is not None:
             tb_writer.add_scalar('train_loss_patches/geometric_constraint_loss', geometric_constraint_loss.item(), iteration)
+        
+        # Task: 确保与现有SH系数的兼容性 - GT-DCA performance logging
+        if gt_dca_info is not None and gt_dca_info.get('status') == 'initialized':
+            tb_writer.add_scalar('gt_dca/enabled', 1 if gt_dca_info.get('enabled', False) else 0, iteration)
+            
+            # Log GT-DCA performance statistics if available
+            if 'performance_stats' in gt_dca_info:
+                perf_stats = gt_dca_info['performance_stats']
+                if 'forward_calls' in perf_stats:
+                    tb_writer.add_scalar('gt_dca/forward_calls', perf_stats['forward_calls'], iteration)
+                if 'average_processing_time' in perf_stats:
+                    tb_writer.add_scalar('gt_dca/avg_processing_time', perf_stats['average_processing_time'], iteration)
+            
+            # Log GT-DCA configuration
+            if 'config' in gt_dca_info:
+                config = gt_dca_info['config']
+                if hasattr(config, 'feature_dim'):
+                    tb_writer.add_scalar('gt_dca/feature_dim', config.feature_dim, iteration)
+                if hasattr(config, 'num_sample_points'):
+                    tb_writer.add_scalar('gt_dca/num_sample_points', config.num_sample_points, iteration)
+        
         # tb_writer.add_scalar('iter_time', elapsed, iteration)
 
     # Report test and samples of training set
@@ -414,17 +452,19 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--train_bg", action="store_true")
 
-    # --- 已修复: 添加缺失的几何约束参数定义 ---
-    # GeoTrack-GS: Add arguments for geometric constraints
-    parser.add_argument("--enable_geometric_constraints", action="store_true", help="Enable geometric constraints.")
-    parser.add_argument("--constraint_config_path", type=str, default="config/constraints.json", help="Path to the constraint configuration file.")
-    parser.add_argument("--geometric_constraint_weight", type=float, default=0.1, help="Weight for the geometric constraint loss.")
-    parser.add_argument("--multiscale_constraint_weight", type=float, default=0.05, help="Weight for the multiscale constraint loss.")
-    parser.add_argument("--min_trajectory_quality", type=float, default=0.4, help="Minimum quality score for a trajectory to be used.")
-    parser.add_argument("--outlier_threshold_pixels", type=float, default=2.0, help="Outlier threshold in pixels for reprojection error.")
-    parser.add_argument("--robust_loss_type", type=str, default="huber", choices=['huber', 'l1', 'l2'], help="Type of robust loss to use for constraints.")
-    parser.add_argument("--enable_adaptive_weighting", action="store_true", help="Enable adaptive weighting for constraints.")
-    # --- 修复结束 ---
+    # Note: Geometric constraint parameters are already defined in ModelParams and OptimizationParams classes
+    
+    # Task: 添加GT-DCA启用/禁用的配置选项
+    # GT-DCA: Add arguments for GT-DCA appearance modeling
+    parser.add_argument("--use_gt_dca", action="store_true", help="Enable GT-DCA enhanced appearance modeling.")
+    parser.add_argument("--gt_dca_feature_dim", type=int, default=256, help="GT-DCA feature dimension.")
+    parser.add_argument("--gt_dca_num_sample_points", type=int, default=8, help="Number of sampling points for GT-DCA deformable sampling.")
+    parser.add_argument("--gt_dca_hidden_dim", type=int, default=128, help="Hidden dimension for GT-DCA MLPs.")
+    parser.add_argument("--gt_dca_confidence_threshold", type=float, default=0.5, help="Confidence threshold for GT-DCA track points.")
+    parser.add_argument("--gt_dca_min_track_points", type=int, default=4, help="Minimum number of track points required for GT-DCA.")
+    parser.add_argument("--gt_dca_enable_caching", action="store_true", help="Enable GT-DCA feature caching for performance.")
+    parser.add_argument("--gt_dca_dropout_rate", type=float, default=0.1, help="Dropout rate for GT-DCA modules.")
+    parser.add_argument("--gt_dca_attention_heads", type=int, default=8, help="Number of attention heads for GT-DCA cross-attention.")
     
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
@@ -439,6 +479,41 @@ if __name__ == "__main__":
         
         # GeoTrack-GS: 打印配置摘要
         print_geometric_constraints_summary(args)
+    
+    # Task: 添加GT-DCA启用/禁用的配置选项
+    # GT-DCA: Setup GT-DCA configuration from command line arguments
+    if hasattr(args, 'use_gt_dca') and args.use_gt_dca:
+        from gt_dca.core.data_structures import GTDCAConfig
+        
+        # Create GT-DCA configuration optimized for Tesla T4 16GB
+        gt_dca_config = GTDCAConfig(
+            feature_dim=getattr(args, 'gt_dca_feature_dim', 64),   # Further reduced to 64
+            hidden_dim=getattr(args, 'gt_dca_hidden_dim', 32),    # Further reduced to 32
+            num_sample_points=getattr(args, 'gt_dca_num_sample_points', 2),  # Minimal sampling points
+            confidence_threshold=getattr(args, 'gt_dca_confidence_threshold', 0.8),  # Higher threshold
+            min_track_points=getattr(args, 'gt_dca_min_track_points', 4),
+            enable_caching=True,  # Enable caching for performance
+            dropout_rate=getattr(args, 'gt_dca_dropout_rate', 0.0),  # Disable dropout for speed
+            attention_heads=getattr(args, 'gt_dca_attention_heads', 2)  # Minimal attention heads
+        )
+        
+        # Attach GT-DCA configuration to args
+        args.gt_dca_config = gt_dca_config
+        
+        # GT-DCA: 独立的轨迹文件处理（不依赖几何约束系统）
+        if hasattr(args, 'track_path') and args.track_path:
+            if os.path.exists(args.track_path):
+                print(f"✅ GT-DCA轨迹文件已找到: {args.track_path}")
+            else:
+                print(f"⚠️ GT-DCA轨迹文件不存在: {args.track_path}")
+                print("请确保轨迹文件路径正确，或生成轨迹文件后重新运行")
+        else:
+            print("⚠️ 未指定GT-DCA轨迹文件路径，请使用 --track_path 参数指定")
+        
+        print(f"✅ GT-DCA配置已设置: {gt_dca_config}")
+    else:
+        args.use_gt_dca = False
+        args.gt_dca_config = None
 
     print("Optimizing " + args.model_path)
 

@@ -1,10 +1,11 @@
 # GeoTrack-GS
 
-本项目利用 3D 高斯溅射（3D Gaussian Splatting）技术，结合先进的几何约束系统，实现高质量的 3D 场景重建与渲染。该项目基于论文《3D Gaussian Splatting for Real-Time Radiance Field Rendering》，并集成了多尺度几何约束、自适应权重调整和 CUDA 加速优化等创新功能。
+本项目利用 3D 高斯溅射（3D Gaussian Splatting）技术，结合先进的几何约束系统和GT-DCA增强外观建模，实现高质量的 3D 场景重建与渲染。该项目基于论文《3D Gaussian Splatting for Real-Time Radiance Field Rendering》，并集成了多尺度几何约束、自适应权重调整和GT-DCA外观增强等创新功能。
 
 ## 主要功能 (Features)
 
 *   **高质量实时渲染**: 基于 3D Gaussian Splatting，实现照片级的实时渲染效果
+*   **GT-DCA外观增强**: 集成GT-DCA（Geometry-guided Track-based Deformable Cross-Attention）模块，提供增强的外观建模能力
 *   **几何约束系统**: 集成多尺度几何约束，提升重建精度和一致性
 *   **自适应权重调整**: 动态调整约束权重，优化训练过程
 *   **轨迹管理**: 智能相机轨迹管理，提升多视角一致性
@@ -12,7 +13,6 @@
 *   **端到端工作流**: 支持从 COLMAP 数据集直接进行训练、渲染和评估
 *   **置信度评估**: 集成置信度信息，提升渲染的稳定性和准确性
 *   **PyTorch 核心**: 完全使用 PyTorch 构建，易于理解、修改和扩展
-*   **高性能 CUDA 加速**: 关键的渲染管线和几何约束计算使用自定义 CUDA 核心实现
 
 ## 先决条件 (Prerequisites)
 
@@ -291,6 +291,36 @@ python train.py -s data/tandt/train -m output/tandt_hq --iterations 30000
 python train.py -s data/tandt/train -m output/tandt_geo --enable_geometric_constraints --constraint_weight 0.1
 ```
 
+#### GT-DCA增强外观建模训练
+启用GT-DCA模块进行增强的外观建模：
+
+```bash
+# 启用GT-DCA增强外观建模
+python train.py -s data/tandt/train -m output/tandt_gtdca \
+    --use_gt_dca \
+    --gt_dca_feature_dim 256 \
+    --gt_dca_num_sample_points 8
+
+# GT-DCA高质量训练
+python train.py -s data/tandt/train -m output/tandt_gtdca_hq \
+    --use_gt_dca \
+    --gt_dca_feature_dim 512 \
+    --gt_dca_num_sample_points 16 \
+    --gt_dca_attention_heads 8 \
+    --gt_dca_enable_caching
+
+# 结合几何约束和GT-DCA的完整训练
+python train.py -s data/tandt/train -m output/tandt_full \
+    --enable_geometric_constraints \
+    --use_gt_dca \
+    --multiscale_constraints \
+    --adaptive_weighting \
+    --gt_dca_feature_dim 256 \
+    --gt_dca_num_sample_points 8 \
+    --constraint_weight 0.1 \
+    --iterations 25000
+```
+
 #### 几何约束训练
 启用几何约束系统进行更精确的重建：
 
@@ -320,39 +350,31 @@ python train.py -s data/tandt/train -m output/tandt_full_geo \
     --iterations 25000
 ```
 
-#### CUDA 加速训练
-启用 CUDA 优化以提升训练性能：
-
-```bash
-# 启用 CUDA 加速
-python train.py -s data/tandt/train -m output/tandt_cuda \
-    --enable_cuda_optimization \
-    --cuda_memory_optimization \
-    --performance_monitoring
-
-# 结合几何约束和 CUDA 加速
-python train.py -s data/tandt/train -m output/tandt_optimal \
-    --enable_geometric_constraints \
-    --enable_cuda_optimization \
-    --multiscale_constraints \
-    --adaptive_weighting \
-    --cuda_memory_optimization \
-    --constraint_weight 0.12 \
-    --iterations 20000
-```
-
 #### 训练参数说明
+
+**基础参数:**
 *   `-s, --source_path`: 输入数据集所在的目录路径
 *   `-m, --model_path`: 用于保存训练好的模型和检查点的目录路径
+*   `--iterations`: 训练迭代次数 (默认: 30000)
+
+**GT-DCA参数:**
+*   `--use_gt_dca`: 启用GT-DCA增强外观建模
+*   `--gt_dca_feature_dim`: GT-DCA特征维度 (默认: 256)
+*   `--gt_dca_num_sample_points`: 可变形采样点数量 (默认: 8)
+*   `--gt_dca_hidden_dim`: GT-DCA隐藏层维度 (默认: 128)
+*   `--gt_dca_attention_heads`: 交叉注意力头数 (默认: 8)
+*   `--gt_dca_confidence_threshold`: 轨迹点置信度阈值 (默认: 0.5)
+*   `--gt_dca_min_track_points`: 最小轨迹点数量 (默认: 4)
+*   `--gt_dca_enable_caching`: 启用GT-DCA特征缓存
+*   `--gt_dca_dropout_rate`: GT-DCA模块的Dropout率 (默认: 0.1)
+
+**几何约束参数:**
 *   `--enable_geometric_constraints`: 启用几何约束系统
 *   `--multiscale_constraints`: 启用多尺度约束
 *   `--adaptive_weighting`: 启用自适应权重调整
 *   `--trajectory_management`: 启用轨迹管理
 *   `--reprojection_validation`: 启用重投影验证
 *   `--constraint_weight`: 几何约束权重 (默认: 0.1)
-*   `--enable_cuda_optimization`: 启用 CUDA 优化
-*   `--cuda_memory_optimization`: 启用 CUDA 内存优化
-*   `--iterations`: 训练迭代次数 (默认: 30000)
 
 要查看所有可用的训练选项，请运行：
 ```bash
@@ -375,6 +397,27 @@ python render.py -m output/tandt --render_quality high
 python render.py -m output/tandt --skip_train --skip_test
 ```
 
+#### GT-DCA增强渲染
+使用GT-DCA模块进行增强的外观渲染：
+
+```bash
+# 启用GT-DCA增强渲染
+python render.py -m output/tandt_gtdca --use_gt_dca
+
+# GT-DCA高质量渲染
+python render.py -m output/tandt_gtdca_hq \
+    --use_gt_dca \
+    --gt_dca_feature_dim 512 \
+    --gt_dca_num_sample_points 16 \
+    --gt_dca_enable_caching
+
+# 结合几何约束和GT-DCA的完整渲染
+python render.py -m output/tandt_full \
+    --use_gt_dca \
+    --gt_dca_feature_dim 256 \
+    --gt_dca_num_sample_points 8
+```
+
 #### 几何约束渲染
 使用几何约束进行更稳定的渲染：
 
@@ -391,33 +434,28 @@ python render.py -m output/tandt_geo \
 # 多尺度约束渲染
 python render.py -m output/tandt_multiscale \
     --enable_geometric_constraints \
-    --multiscale_constraints \
-    --render_quality high
-```
-
-#### CUDA 加速渲染
-启用 CUDA 优化以提升渲染性能：
-
-```bash
-# CUDA 加速渲染
-python render.py -m output/tandt_cuda --enable_cuda_optimization
-
-# 完整优化渲染
-python render.py -m output/tandt_optimal \
-    --enable_geometric_constraints \
-    --enable_cuda_optimization \
-    --multiscale_constraints \
-    --render_quality high \
-    --cuda_memory_optimization
+    --multiscale_constraints
 ```
 
 #### 渲染参数说明
+
+**基础参数:**
 *   `-m, --model_path`: 训练好的模型路径
+*   `--skip_train`: 跳过训练集渲染
+*   `--skip_test`: 跳过测试集渲染
+
+**GT-DCA参数:**
+*   `--use_gt_dca`: 启用GT-DCA增强渲染
+*   `--gt_dca_feature_dim`: GT-DCA特征维度 (默认: 256)
+*   `--gt_dca_num_sample_points`: 可变形采样点数量 (默认: 8)
+*   `--gt_dca_hidden_dim`: GT-DCA隐藏层维度 (默认: 128)
+*   `--gt_dca_attention_heads`: 交叉注意力头数 (默认: 8)
+*   `--gt_dca_enable_caching`: 启用GT-DCA特征缓存
+
+**几何约束参数:**
 *   `--enable_geometric_constraints`: 启用几何约束
 *   `--reprojection_validation`: 启用重投影验证
 *   `--multiscale_constraints`: 启用多尺度约束
-*   `--render_quality`: 渲染质量 (low/medium/high)
-*   `--enable_cuda_optimization`: 启用 CUDA 优化
 *   `--validation_threshold`: 验证阈值 (默认: 1.0)
 
 ### 4. 评估
@@ -458,20 +496,19 @@ python full_eval.py -m output/tandt_full_geo \
     --detailed_report
 ```
 
-#### 性能评估
-评估 CUDA 优化的性能提升：
+#### GT-DCA评估
+评估GT-DCA增强外观建模的效果：
 
 ```bash
-# 性能基准测试
-python full_eval.py -m output/tandt_cuda \
-    --enable_cuda_optimization \
-    --performance_benchmark
+# GT-DCA模型评估
+python full_eval.py -m output/tandt_gtdca
 
-# 内存使用评估
-python full_eval.py -m output/tandt_optimal \
-    --enable_cuda_optimization \
-    --memory_profiling \
-    --performance_benchmark
+# GT-DCA高质量模型评估
+python full_eval.py -m output/tandt_gtdca_hq --detailed_report
+
+# 结合几何约束和GT-DCA的完整评估
+python full_eval.py -m output/tandt_full \
+    --detailed_report
 ```
 
 #### 评估参数说明
@@ -481,8 +518,6 @@ python full_eval.py -m output/tandt_optimal \
 *   `--reprojection_metrics`: 计算重投影误差指标
 *   `--trajectory_metrics`: 计算轨迹一致性指标
 *   `--detailed_report`: 生成详细评估报告
-*   `--performance_benchmark`: 进行性能基准测试
-*   `--memory_profiling`: 进行内存使用分析
 
 ### 5. 配置文件
 
@@ -497,25 +532,95 @@ python train.py -s data/tandt/train -m output/tandt_custom \
 python -c "from geometric_constraints.config import load_config; print(load_config())"
 ```
 
-### 6. 批量处理
+### 6. GT-DCA详细说明
+
+#### GT-DCA模块介绍
+GT-DCA（Geometry-guided Track-based Deformable Cross-Attention）是本项目的核心创新功能，它通过以下两个阶段提供增强的外观建模：
+
+**阶段1: 几何引导 (Geometry Guidance)**
+- 从3D高斯基元生成基础外观特征作为查询向量
+- 使用交叉注意力机制注入几何上下文信息
+- 利用2D轨迹点提供几何引导
+
+**阶段2: 可变形采样 (Deformable Sampling)**
+- 预测采样偏移量和注意力权重
+- 从2D特征图进行可变形采样
+- 聚合加权特征生成最终的增强外观特征
+
+#### GT-DCA配置建议
+
+**基础配置（适用于大多数场景）:**
+```bash
+python train.py -s /path/to/dataset -m output/model \
+    --use_gt_dca \
+    --gt_dca_feature_dim 256 \
+    --gt_dca_num_sample_points 8 \
+    --gt_dca_attention_heads 8
+```
+
+**高质量配置（适用于复杂场景）:**
+```bash
+python train.py -s /path/to/dataset -m output/model \
+    --use_gt_dca \
+    --gt_dca_feature_dim 512 \
+    --gt_dca_num_sample_points 16 \
+    --gt_dca_attention_heads 16 \
+    --gt_dca_enable_caching \
+    --gt_dca_dropout_rate 0.05
+```
+
+**内存优化配置（适用于GPU内存有限的情况）:**
+```bash
+python train.py -s /path/to/dataset -m output/model \
+    --use_gt_dca \
+    --gt_dca_feature_dim 128 \
+    --gt_dca_num_sample_points 4 \
+    --gt_dca_attention_heads 4 \
+    --gt_dca_dropout_rate 0.2
+```
+
+#### GT-DCA性能优化建议
+
+1. **特征维度选择**: 
+   - 256维适用于大多数场景
+   - 512维用于高质量重建
+   - 128维用于快速训练或内存受限环境
+
+2. **采样点数量**:
+   - 8个采样点提供良好的质量/性能平衡
+   - 16个采样点用于精细细节重建
+   - 4个采样点用于快速训练
+
+3. **缓存策略**:
+   - 启用缓存可提升训练速度
+   - 在内存受限时禁用缓存
+
+### 7. 批量处理
 
 处理多个数据集：
 
 ```bash
-# 批量训练多个场景
+# 批量GT-DCA训练多个场景
+for scene in tandt truck train; do
+    python train.py -s data/$scene/train -m output/$scene \
+        --use_gt_dca \
+        --gt_dca_feature_dim 256 \
+        --gt_dca_num_sample_points 8
+done
+
+# 批量结合几何约束和GT-DCA训练
 for scene in tandt truck train; do
     python train.py -s data/$scene/train -m output/$scene \
         --enable_geometric_constraints \
+        --use_gt_dca \
         --multiscale_constraints \
-        --adaptive_weighting
+        --adaptive_weighting \
+        --gt_dca_feature_dim 256
 done
 
 # 批量评估
 for scene in tandt truck train; do
-    python full_eval.py -m output/$scene \
-        --enable_geometric_constraints \
-        --geometric_metrics \
-        --detailed_report
+    python full_eval.py -m output/$scene --detailed_report
 done
 ```
 

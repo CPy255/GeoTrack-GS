@@ -73,19 +73,94 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
+    # Task: 修改渲染流程以使用增强的外观特征
+    # Task: 确保与现有SH系数的兼容性
+    # Requirements: 3.3 - Enhanced rendering with GT-DCA features
+    
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
     if override_color is None:
-        if pipe.convert_SHs_python:
-            shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
-            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
-            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
-            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+        # Check if GT-DCA is available and enabled
+        if hasattr(pc, 'is_gt_dca_enabled') and pc.is_gt_dca_enabled():
+            # Performance optimization: Only use GT-DCA every 10 iterations to speed up training
+            if not hasattr(pc, '_gt_dca_iter_counter'):
+                pc._gt_dca_iter_counter = 0
+            pc._gt_dca_iter_counter += 1
+            
+            if pc._gt_dca_iter_counter % 50 == 0:  # Every 50 iterations for T4
+                try:
+                    # Use GT-DCA enhanced appearance features
+                    with torch.no_grad():
+                        appearance_features = pc.get_appearance_features(viewpoint_camera, use_gt_dca=True).detach()
+                    
+                    # Convert GT-DCA features to colors directly
+                    if appearance_features.dim() == 2:
+                        feature_dim = appearance_features.shape[1]
+                        
+                        if feature_dim >= 3:
+                            # Use first 3 channels as RGB colors
+                            colors_precomp = torch.clamp(torch.sigmoid(appearance_features[:, :3]), 0.0, 1.0)
+                        elif feature_dim == 1:
+                            # Convert grayscale to RGB
+                            gray_values = torch.clamp(torch.sigmoid(appearance_features[:, 0:1]), 0.0, 1.0)
+                            colors_precomp = gray_values.repeat(1, 3)
+                        else:
+                            raise ValueError(f"Unsupported GT-DCA feature dimension: {feature_dim}")
+                        
+                        if pc._gt_dca_iter_counter % 100 == 0:  # Reduce logging frequency
+                            print(f"🎨 GT-DCA特征渲染，维度: {appearance_features.shape}")
+                        
+                    else:
+                        # New: Handle 3-D tensors that contain SH coefficients directly
+                        # Shape is expected to be (N, coeffs, 3)
+                        if appearance_features.dim() == 3 and appearance_features.shape[-1] == 3:
+                            if pipe.convert_SHs_python:
+                                shs_view = appearance_features.transpose(1, 2).contiguous()  # (N, 3, coeffs)
+                                dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+                                dir_pp_normalized = dir_pp / dir_pp.norm(dim=1, keepdim=True)
+                                sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+                                colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+                            else:
+                                shs = appearance_features  # Let rasterizer handle SH->RGB
+                            if pc._gt_dca_iter_counter % 100 == 0:
+                                print(f"🎨 使用SH特征渲染，形状: {appearance_features.shape}")
+                        else:
+                            raise ValueError(f"Unsupported GT-DCA feature tensor shape: {appearance_features.shape}")
+                    
+                except Exception as e:
+                    if pc._gt_dca_iter_counter % 100 == 0:  # Reduce error logging frequency
+                        print(f"⚠️ GT-DCA失败，回退SH: {e}")
+                    # Fallback to standard SH processing
+                    if pipe.convert_SHs_python:
+                        shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+                        dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+                        dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+                        sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+                        colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+                    else:
+                        shs = pc.get_features
+            else:
+                # Use standard SH processing most of the time
+                if pipe.convert_SHs_python:
+                    shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+                    dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+                    dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+                    sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+                    colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+                else:
+                    shs = pc.get_features
         else:
-            shs = pc.get_features
+            # Standard SH processing (existing implementation)
+            if pipe.convert_SHs_python:
+                shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+                dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+                dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+                sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+                colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+            else:
+                shs = pc.get_features
     else:
         colors_precomp = override_color
 
