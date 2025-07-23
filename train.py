@@ -59,14 +59,14 @@ def training(dataset, opt, pipe, args):
     # 初始化混合精度训练
     scaler = None
     if getattr(opt, 'mixed_precision', False):
-        from torch.cuda.amp import GradScaler, autocast
-        scaler = GradScaler()
+        from torch.amp import GradScaler, autocast
+        scaler = GradScaler('cuda')
         amp_dtype = getattr(opt, 'amp_dtype', 'fp16')
         dtype = torch.float16 if amp_dtype == 'fp16' else torch.bfloat16
         print(f"[AMP] 启用混合精度训练，精度类型: {amp_dtype}")
     else:
         # 即使不启用AMP也要导入，避免后续代码报错
-        from torch.cuda.amp import autocast
+        from torch.amp import autocast
         dtype = torch.float32
     # 如果命令行参数启用了 GT-DCA，则显式启用集成（确保训练阶段使用增强外观特征）
     if getattr(args, 'use_gt_dca', False):
@@ -175,7 +175,7 @@ def training(dataset, opt, pipe, args):
                 gaussians.invalidate_gt_dca_cache()
         
         # 使用混合精度进行前向计算
-        with autocast(enabled=scaler is not None, dtype=dtype):
+        with autocast('cuda', enabled=scaler is not None, dtype=dtype):
             render_pkg = render(viewpoint_cam, gaussians, pipe, background)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
@@ -379,8 +379,15 @@ def training(dataset, opt, pipe, args):
             # Optimizer step with AMP support
             if iteration < opt.iterations:
                 if scaler is not None:
-                    scaler.step(gaussians.optimizer)
-                    scaler.update()
+                    # 检查是否有参数有梯度，避免unscale空优化器
+                    has_grads = any(p.grad is not None for group in gaussians.optimizer.param_groups for p in group['params'])
+                    if has_grads:
+                        scaler.unscale_(gaussians.optimizer)
+                        scaler.step(gaussians.optimizer)
+                        scaler.update()
+                    else:
+                        # 没有梯度时使用普通step
+                        gaussians.optimizer.step()
                 else:
                     gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
