@@ -465,7 +465,9 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test, psnr_test, ssim_test, lpips_test = 0.0, 0.0, 0.0, 0.0
-                for idx, viewpoint in enumerate(config['cameras']):
+                # 限制评估相机数量以提升性能
+                max_eval_cameras = min(len(config['cameras']), 5)
+                for idx, viewpoint in enumerate(config['cameras'][:max_eval_cameras]):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 8):
@@ -481,10 +483,10 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                     psnr_test += _psnr
                     ssim_test += _ssim
                     lpips_test += _lpips
-                psnr_test /= len(config['cameras'])
-                ssim_test /= len(config['cameras'])
-                lpips_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])
+                psnr_test /= max_eval_cameras
+                ssim_test /= max_eval_cameras
+                lpips_test /= max_eval_cameras
+                l1_test /= max_eval_cameras
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {} ".format(
                     iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
                 if tb_writer:
@@ -508,7 +510,7 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--llff_holdout", type=int, default=0, help="Holdout factor for LLFF data. 1/N of images are used for testing. Default=0 means all for training.")
 
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1000, 2000, 3000, 5000, 10000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[5000, 10000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[5000, 10000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--data_type", type=str, default="colmap", help="Type of dataset, e.g., 'colmap', 'blender', '360'")
