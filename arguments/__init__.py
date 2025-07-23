@@ -79,7 +79,7 @@ class PipelineParams(ParamGroup):
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 10_000
-        self.position_lr_init = 0.00016
+        self.position_lr_init = 0.0008
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 10_000
@@ -89,18 +89,18 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 100
+        self.densification_interval = 150  # 减少密化频率提升速度
         self.opacity_reset_interval = 3000
-        self.densify_from_iter = 500
+        self.densify_from_iter = 300
         self.prune_from_iter = 500
-        self.densify_until_iter = 10_000
+        self.densify_until_iter = 8_000  # 提前结束密化
         self.densify_grad_threshold = 0.0005
         self.prune_threshold = 0.005
         self.start_sample_pseudo = 2000
         self.end_sample_pseudo = 9500
-        self.sample_pseudo_interval = 10
+        self.sample_pseudo_interval = 20  # 减少伪相机采样频率
         self.dist_thres = 10.
-        self.depth_weight = 0.05
+        self.depth_weight = 0.03  # 降低深度损失权重加速计算
         self.depth_pseudo_weight = 0.5
         # --- GeoTrack-GS: 新增优化与损失相关参数 ---
         self.use_hybrid_loss = False  # 启用混合几何损失模型
@@ -141,6 +141,10 @@ class OptimizationParams(ParamGroup):
         self.geometry_reg_k_neighbors = 16  # PCA分析的邻居数量
         self.geometry_reg_enable_threshold = 5000  # 开始正则化的迭代阈值
         self.geometry_reg_min_eigenvalue_ratio = 0.1  # 最小特征值比率
+        
+        # 混合精度训练参数
+        self.mixed_precision = False  # 启用整个训练流程的混合精度（AMP）
+        self.amp_dtype = "fp16"  # AMP精度类型 (fp16 或 bf16)
         
         super().__init__(parser, "Optimization Parameters")
 

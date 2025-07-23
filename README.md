@@ -746,6 +746,16 @@ python train.py -s data/tandt/train -m output/tandt_ultimate \
 *   `--geometry_reg_enable_threshold`: 开始正则化的迭代阈值 (默认: 5000)
 *   `--geometry_reg_min_eigenvalue_ratio`: 最小特征值比率 (默认: 0.1)
 
+**混合精度训练参数:**
+*   `--mixed_precision`: 启用全局混合精度训练（自动混合精度AMP）
+*   `--amp_dtype`: 混合精度数据类型，可选fp16或bf16 (默认: fp16)
+*   说明: 控制整个训练循环的混合精度，包括：
+    - 渲染过程的前向传播
+    - 损失计算（L1、SSIM、几何约束等）
+    - 反向传播和梯度计算
+    - 优化器参数更新
+*   效果: 显著降低GPU内存使用（约30-50%），同时加速训练过程
+
 要查看所有可用的训练选项，请运行：
 ```bash
 python train.py --help
@@ -827,6 +837,11 @@ python render.py -m output/tandt_multiscale \
 *   `--reprojection_validation`: 启用重投影验证
 *   `--multiscale_constraints`: 启用多尺度约束
 *   `--validation_threshold`: 验证阈值 (默认: 1.0)
+
+**混合精度渲染参数:**
+*   `--mixed_precision`: 启用渲染过程的混合精度计算
+*   说明: 控制渲染过程中的混合精度，包括高斯基元的前向传播和颜色计算
+*   效果: 降低GPU内存使用，加速渲染速度
 
 ### 4. 评估
 
@@ -988,8 +1003,8 @@ python train.py -s /path/to/dataset -m output/model \
     --gt_dca_num_sample_points 4 \
     --gt_dca_attention_heads 4 \
     --gt_dca_dropout_rate 0.2 \
-    --gt_dca_mixed_precision \
-    --gt_dca_amp_dtype fp16
+    --mixed_precision \
+    --amp_dtype fp16
 ```
 
 **Tesla T4 优化配置（16GB显存）:**
@@ -1002,7 +1017,7 @@ python train.py -s /path/to/dataset -m output/model \
     --gt_dca_attention_heads 2 \
     --gt_dca_confidence_threshold 0.8 \
     --gt_dca_enable_caching \
-    --gt_dca_mixed_precision
+    --mixed_precision
 ```
 
 #### 🔧 性能优化策略
@@ -1010,7 +1025,7 @@ python train.py -s /path/to/dataset -m output/model \
 **1. 内存优化**
 - **特征维度**: 根据GPU显存调整 `feature_dim` (64-512)
 - **采样点数**: 减少 `num_sample_points` 可显著降低内存使用
-- **混合精度**: 启用 `--gt_dca_mixed_precision` 减少显存占用
+- **混合精度**: 启用 `--mixed_precision` 开启全局AMP训练，减少显存占用并加速训练
 - **缓存策略**: 合理使用 `--gt_dca_enable_caching`
 
 **2. 计算优化**
@@ -1090,7 +1105,7 @@ RuntimeError: CUDA out of memory
 **解决方案:**
 - 减少 `--gt_dca_feature_dim`
 - 降低 `--gt_dca_num_sample_points`
-- 启用 `--gt_dca_mixed_precision`
+- 启用 `--mixed_precision` 进行全局混合精度训练
 
 3. **性能问题**
 ```bash
@@ -1263,7 +1278,7 @@ for scene in tandt truck train; do
         --gt_dca_feature_dim 128 \
         --gt_dca_num_sample_points 4 \
         --gt_dca_attention_heads 4 \
-        --gt_dca_mixed_precision \
+        --mixed_precision \
         --gt_dca_enable_caching \
         --geometry_reg_weight 0.008 \
         --geometry_reg_k_neighbors 12 \
@@ -1605,7 +1620,7 @@ RuntimeError: CUDA out of memory
 **解决方案:**
 - 减少GT-DCA特征维度: `--gt_dca_feature_dim 128`
 - 降低采样点数量: `--gt_dca_num_sample_points 4`
-- 启用混合精度训练: `--gt_dca_mixed_precision`
+- 启用全局混合精度训练: `--mixed_precision`
 - 使用内存优化配置（见文档Tesla T4配置）
 
 **Q: 几何正则化损失始终为0？**
@@ -1692,7 +1707,7 @@ python train.py -s /path/to/dataset -m output/model \
     --gt_dca_feature_dim 128 \
     --gt_dca_num_sample_points 4 \
     --gt_dca_attention_heads 4 \
-    --gt_dca_mixed_precision \
+    --mixed_precision \
     --iterations 20000
 ```
 

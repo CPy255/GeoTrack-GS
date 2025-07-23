@@ -152,9 +152,8 @@ if __name__ == "__main__":
     parser.add_argument("--gt_dca_enable_caching", action="store_true", help="Enable GT-DCA feature caching for performance.")
     parser.add_argument("--gt_dca_dropout_rate", type=float, default=0.1, help="Dropout rate for GT-DCA modules.")
     parser.add_argument("--gt_dca_attention_heads", type=int, default=8, help="Number of attention heads for GT-DCA cross-attention.")
-    # 混合精度选项
-    parser.add_argument("--gt_dca_mixed_precision", action="store_true", help="启用 GT-DCA 推理的混合精度 (AMP)")
-    parser.add_argument("--gt_dca_amp_dtype", type=str, choices=["fp16", "bf16"], default="fp16", help="AMP 精度类型 (fp16 或 bf16)")
+    # 混合精度选项 - 注意：混合精度现在通过 --mixed_precision 全局控制
+    # amp_dtype 参数已移至 OptimizationParams 中统一管理
     
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
@@ -174,8 +173,8 @@ if __name__ == "__main__":
             enable_caching=getattr(args, 'gt_dca_enable_caching', False),
             dropout_rate=getattr(args, 'gt_dca_dropout_rate', 0.1),
             attention_heads=getattr(args, 'gt_dca_attention_heads', 8),
-            use_mixed_precision=getattr(args, 'gt_dca_mixed_precision', False),
-            amp_dtype=getattr(args, 'gt_dca_amp_dtype', 'fp16')
+            use_mixed_precision=getattr(args, 'mixed_precision', False),
+            amp_dtype=getattr(args, 'amp_dtype', 'fp16')
         )
         
         # Attach GT-DCA configuration to args

@@ -55,6 +55,19 @@ def training(dataset, opt, pipe, args):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(args)
+    
+    # 初始化混合精度训练
+    scaler = None
+    if getattr(opt, 'mixed_precision', False):
+        from torch.cuda.amp import GradScaler, autocast
+        scaler = GradScaler()
+        amp_dtype = getattr(opt, 'amp_dtype', 'fp16')
+        dtype = torch.float16 if amp_dtype == 'fp16' else torch.bfloat16
+        print(f"[AMP] 启用混合精度训练，精度类型: {amp_dtype}")
+    else:
+        # 即使不启用AMP也要导入，避免后续代码报错
+        from torch.cuda.amp import autocast
+        dtype = torch.float32
     # 如果命令行参数启用了 GT-DCA，则显式启用集成（确保训练阶段使用增强外观特征）
     if getattr(args, 'use_gt_dca', False):
         try:
@@ -158,131 +171,136 @@ def training(dataset, opt, pipe, args):
         # Update GT-DCA cache if needed (for training efficiency)
         if hasattr(gaussians, 'is_gt_dca_enabled') and gaussians.is_gt_dca_enabled():
             # Invalidate cache periodically to ensure fresh features
-            if iteration % 100 == 0:
+            if iteration % 500 == 0:
                 gaussians.invalidate_gt_dca_cache()
         
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background)
-        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        # 使用混合精度进行前向计算
+        with autocast(enabled=scaler is not None, dtype=dtype):
+            render_pkg = render(viewpoint_cam, gaussians, pipe, background)
+            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
+            # Loss
+            gt_image = viewpoint_cam.original_image.cuda()
+            Ll1 =  l1_loss_mask(image, gt_image)
+            loss = ((1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)))
 
-        # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 =  l1_loss_mask(image, gt_image)
-        loss = ((1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)))
+            # GeoTrack-GS: 计算几何约束损失
+            geometric_constraint_loss = torch.tensor(0.0, device="cuda")
+            constraint_result = None # 确保变量存在
+            active_trajectories = [] # 确保变量存在
 
-        # GeoTrack-GS: 计算几何约束损失
-        geometric_constraint_loss = torch.tensor(0.0, device="cuda")
-        constraint_result = None # 确保变量存在
-        active_trajectories = [] # 确保变量存在
-
-        if constraint_system is not None and trajectory_manager is not None:
-            try:
-                # 获取活跃轨迹
-                active_trajectories = trajectory_manager.get_active_trajectories()
-                
-                if len(active_trajectories) > 0:
-                    # 获取相机和高斯点
-                    cameras = scene.getTrainCameras()
-                    gaussian_points = gaussians.get_xyz
+            if constraint_system is not None and trajectory_manager is not None:
+                try:
+                    # 获取活跃轨迹
+                    active_trajectories = trajectory_manager.get_active_trajectories()
                     
-                    # 计算自适应权重
-                    adaptive_weights = constraint_system.compute_adaptive_weights(
-                        active_trajectories, 
-                        image_regions=image,
+                    if len(active_trajectories) > 0:
+                        # 获取相机和高斯点
+                        cameras = scene.getTrainCameras()
+                        gaussian_points = gaussians.get_xyz
+                        
+                        # 计算自适应权重
+                        adaptive_weights = constraint_system.compute_adaptive_weights(
+                            active_trajectories, 
+                            image_regions=image,
+                            iteration=iteration
+                        )
+                        
+                        # 计算重投影约束
+                        constraint_result = constraint_system.compute_reprojection_constraints(
+                            active_trajectories,
+                            cameras,
+                            gaussian_points
+                        )
+                        
+                        # 计算多尺度约束
+                        multiscale_result = constraint_system.compute_multiscale_constraints(
+                            active_trajectories,
+                            cameras,
+                            scales=[1.0, 0.5, 0.25]
+                        )
+                        
+                        # 组合约束损失
+                        geometric_constraint_loss = (
+                            constraint_result.loss_value + 
+                            multiscale_result.loss_value
+                        )
+                        
+                        # 应用动态权重调度
+                        constraint_weight = getattr(args, 'geometric_constraint_weight', 0.1)
+                        if iteration < 1000:
+                            constraint_weight *= 0.1  # 早期阶段降低权重
+                        elif iteration < 5000:
+                            constraint_weight *= (0.1 + 0.9 * (iteration - 1000) / 4000)  # 逐渐增加
+                        
+                        geometric_constraint_loss *= constraint_weight
+                        
+                except Exception as e:
+                    if iteration % 100 == 0:  # 避免过多日志
+                        print(f"[GeoTrack-GS] Warning: Constraint computation failed at iteration {iteration}: {e}")
+                    geometric_constraint_loss = torch.tensor(0.0, device="cuda")
+
+            # 深度损失计算
+            rendered_depth = render_pkg["depth"][0]
+            midas_depth = torch.tensor(viewpoint_cam.depth_image).cuda()
+            rendered_depth = rendered_depth.reshape(-1, 1)
+            midas_depth = midas_depth.reshape(-1, 1)
+
+            depth_loss = min(
+                                 (1 - pearson_corrcoef( - midas_depth, rendered_depth)),
+                                 (1 - pearson_corrcoef(1 / (midas_depth + 200.), rendered_depth))
+            )
+            
+            # GeoTrack-GS: 可选择性地禁用深度损失（用于消融实验）
+            if not getattr(args, 'disable_depth_loss', False):
+                loss += args.depth_weight * depth_loss
+            
+            # GeoTrack-GS: 添加几何约束损失
+            loss += geometric_constraint_loss
+            
+            # 添加几何正则化损失
+            geometry_reg_loss = torch.tensor(0.0, device="cuda")
+            if geometry_regularizer is not None:
+                try:
+                    geometry_reg_loss = geometry_regularizer.compute_anisotropic_regularization_loss(
+                        xyz=gaussians.get_xyz,
+                        scaling=gaussians.get_scaling,
+                        rotation=gaussians.get_rotation,
                         iteration=iteration
                     )
-                    
-                    # 计算重投影约束
-                    constraint_result = constraint_system.compute_reprojection_constraints(
-                        active_trajectories,
-                        cameras,
-                        gaussian_points
-                    )
-                    
-                    # 计算多尺度约束
-                    multiscale_result = constraint_system.compute_multiscale_constraints(
-                        active_trajectories,
-                        cameras,
-                        scales=[1.0, 0.5, 0.25]
-                    )
-                    
-                    # 组合约束损失
-                    geometric_constraint_loss = (
-                        constraint_result.loss_value + 
-                        multiscale_result.loss_value
-                    )
-                    
-                    # 应用动态权重调度
-                    constraint_weight = getattr(args, 'geometric_constraint_weight', 0.1)
-                    if iteration < 1000:
-                        constraint_weight *= 0.1  # 早期阶段降低权重
-                    elif iteration < 5000:
-                        constraint_weight *= (0.1 + 0.9 * (iteration - 1000) / 4000)  # 逐渐增加
-                    
-                    geometric_constraint_loss *= constraint_weight
-                    
-            except Exception as e:
-                if iteration % 100 == 0:  # 避免过多日志
-                    print(f"[GeoTrack-GS] Warning: Constraint computation failed at iteration {iteration}: {e}")
-                geometric_constraint_loss = torch.tensor(0.0, device="cuda")
+                    loss += geometry_reg_loss
+                except Exception as e:
+                    if iteration % 1000 == 0:  # 降低日志频率
+                        print(f"[Geometry Regularization] Warning: Failed at iteration {iteration}: {e}")
+                    geometry_reg_loss = torch.tensor(0.0, device="cuda")
 
-        rendered_depth = render_pkg["depth"][0]
-        midas_depth = torch.tensor(viewpoint_cam.depth_image).cuda()
-        rendered_depth = rendered_depth.reshape(-1, 1)
-        midas_depth = midas_depth.reshape(-1, 1)
+            # 伪相机渲染损失
+            if iteration % args.sample_pseudo_interval == 0 and iteration > args.start_sample_pseudo and iteration < args.end_sample_pseudo:
+                if not pseudo_stack:
+                    pseudo_stack = scene.getPseudoCameras().copy()
+                pseudo_cam = pseudo_stack.pop(randint(0, len(pseudo_stack) - 1))
 
-        depth_loss = min(
-                             (1 - pearson_corrcoef( - midas_depth, rendered_depth)),
-                             (1 - pearson_corrcoef(1 / (midas_depth + 200.), rendered_depth))
-        )
-        
-        # GeoTrack-GS: 可选择性地禁用深度损失（用于消融实验）
-        if not getattr(args, 'disable_depth_loss', False):
-            loss += args.depth_weight * depth_loss
-        
-        # GeoTrack-GS: 添加几何约束损失
-        loss += geometric_constraint_loss
-        
-        # 添加几何正则化损失
-        geometry_reg_loss = torch.tensor(0.0, device="cuda")
-        if geometry_regularizer is not None:
-            try:
-                geometry_reg_loss = geometry_regularizer.compute_anisotropic_regularization_loss(
-                    xyz=gaussians.get_xyz,
-                    scaling=gaussians.get_scaling,
-                    rotation=gaussians.get_rotation,
-                    iteration=iteration
-                )
-                loss += geometry_reg_loss
-            except Exception as e:
-                if iteration % 1000 == 0:  # 降低日志频率
-                    print(f"[Geometry Regularization] Warning: Failed at iteration {iteration}: {e}")
-                geometry_reg_loss = torch.tensor(0.0, device="cuda")
+                render_pkg_pseudo = render(pseudo_cam, gaussians, pipe, background)
+                rendered_depth_pseudo = render_pkg_pseudo["depth"][0]
+                midas_depth_pseudo = estimate_depth(render_pkg_pseudo["render"], mode='train')
 
+                rendered_depth_pseudo = rendered_depth_pseudo.reshape(-1, 1)
+                midas_depth_pseudo = midas_depth_pseudo.reshape(-1, 1)
+                depth_loss_pseudo = (1 - pearson_corrcoef(rendered_depth_pseudo, -midas_depth_pseudo)).mean()
+
+                if torch.isnan(depth_loss_pseudo).sum() == 0:
+                    loss_scale = min((iteration - args.start_sample_pseudo) / 500., 1)
+                    loss += loss_scale * args.depth_pseudo_weight * depth_loss_pseudo
+
+        # 动态调整深度权重
         if iteration > args.end_sample_pseudo:
             args.depth_weight = 0.001
 
-
-
-        if iteration % args.sample_pseudo_interval == 0 and iteration > args.start_sample_pseudo and iteration < args.end_sample_pseudo:
-            if not pseudo_stack:
-                pseudo_stack = scene.getPseudoCameras().copy()
-            pseudo_cam = pseudo_stack.pop(randint(0, len(pseudo_stack) - 1))
-
-            render_pkg_pseudo = render(pseudo_cam, gaussians, pipe, background)
-            rendered_depth_pseudo = render_pkg_pseudo["depth"][0]
-            midas_depth_pseudo = estimate_depth(render_pkg_pseudo["render"], mode='train')
-
-            rendered_depth_pseudo = rendered_depth_pseudo.reshape(-1, 1)
-            midas_depth_pseudo = midas_depth_pseudo.reshape(-1, 1)
-            depth_loss_pseudo = (1 - pearson_corrcoef(rendered_depth_pseudo, -midas_depth_pseudo)).mean()
-
-            if torch.isnan(depth_loss_pseudo).sum() == 0:
-                loss_scale = min((iteration - args.start_sample_pseudo) / 500., 1)
-                loss += loss_scale * args.depth_pseudo_weight * depth_loss_pseudo
-
-
-        loss.backward()
+        # 使用scaler进行反向传播
+        if scaler is not None:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
@@ -358,9 +376,13 @@ def training(dataset, opt, pipe, args):
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.prune_threshold, scene.cameras_extent, size_threshold, iteration)
 
 
-            # Optimizer step
+            # Optimizer step with AMP support
             if iteration < opt.iterations:
-                gaussians.optimizer.step()
+                if scaler is not None:
+                    scaler.step(gaussians.optimizer)
+                    scaler.update()
+                else:
+                    gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
             gaussians.update_learning_rate(iteration)
@@ -458,7 +480,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                 l1_test /= len(config['cameras'])
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {} ".format(
                     iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
-            if tb_writer:
+                if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
 
@@ -500,9 +522,8 @@ if __name__ == "__main__":
     parser.add_argument("--gt_dca_enable_caching", action="store_true", help="Enable GT-DCA feature caching for performance.")
     parser.add_argument("--gt_dca_dropout_rate", type=float, default=0.1, help="Dropout rate for GT-DCA modules.")
     parser.add_argument("--gt_dca_attention_heads", type=int, default=8, help="Number of attention heads for GT-DCA cross-attention.")
-    # 混合精度选项
-    parser.add_argument("--gt_dca_mixed_precision", action="store_true", help="启用 GT-DCA 推理的混合精度 (AMP)")
-    parser.add_argument("--gt_dca_amp_dtype", type=str, choices=["fp16", "bf16"], default="fp16", help="AMP 精度类型 (fp16 或 bf16)")
+    # 混合精度选项 - 注意：混合精度现在通过 --mixed_precision 全局控制
+    # amp_dtype 参数已移至 OptimizationParams 中统一管理
     
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
@@ -533,8 +554,8 @@ if __name__ == "__main__":
             enable_caching=True,  # Enable caching for performance
             dropout_rate=getattr(args, 'gt_dca_dropout_rate', 0.0),  # Disable dropout for speed
             attention_heads=getattr(args, 'gt_dca_attention_heads', 2),  # Minimal attention heads
-            use_mixed_precision=getattr(args, 'gt_dca_mixed_precision', False),
-            amp_dtype=getattr(args, 'gt_dca_amp_dtype', 'fp16')
+            use_mixed_precision=getattr(args, 'mixed_precision', False),
+            amp_dtype=getattr(opt, 'amp_dtype', 'fp16')
         )
         
         # Attach GT-DCA configuration to args
