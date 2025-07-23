@@ -89,13 +89,13 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 150  # 减少密化频率提升速度
+        self.densification_interval = 200  # 进一步减少密化频率
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 300
         self.prune_from_iter = 500
-        self.densify_until_iter = 8_000  # 提前结束密化
+        self.densify_until_iter = 5_000  # 更早结束密化，防止后期速度过慢
         self.densify_grad_threshold = 0.0005
-        self.prune_threshold = 0.005
+        self.prune_threshold = 0.01  # 更激进的剪枝
         self.start_sample_pseudo = 2000
         self.end_sample_pseudo = 9500
         self.sample_pseudo_interval = 20  # 减少伪相机采样频率

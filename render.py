@@ -141,6 +141,10 @@ if __name__ == "__main__":
     parser.add_argument("--fps", default=30, type=int)
     parser.add_argument("--render_depth", action="store_true")
     
+    # 混合精度渲染选项
+    parser.add_argument("--mixed_precision", action="store_true", help="Enable mixed precision rendering")
+    parser.add_argument("--amp_dtype", type=str, default="fp16", choices=["fp16", "bf16"], help="AMP data type")
+    
     # Task: 添加GT-DCA启用/禁用的配置选项 - 渲染脚本支持
     # GT-DCA: Add arguments for GT-DCA appearance modeling in rendering
     parser.add_argument("--use_gt_dca", action="store_true", help="Enable GT-DCA enhanced appearance modeling during rendering.")
