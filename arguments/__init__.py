@@ -79,7 +79,7 @@ class PipelineParams(ParamGroup):
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 10_000
-        self.position_lr_init = 0.0008
+        self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 10_000
@@ -89,16 +89,16 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 150  # 减少密化频率提升速度
+        self.densification_interval = 100
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 300
         self.prune_from_iter = 500
-        self.densify_until_iter = 8_000  # 提前结束密化
+        self.densify_until_iter = 10_000
         self.densify_grad_threshold = 0.0005
         self.prune_threshold = 0.005
         self.start_sample_pseudo = 2000
         self.end_sample_pseudo = 9500
-        self.sample_pseudo_interval = 20  # 减少伪相机采样频率
+        self.sample_pseudo_interval = 10  # 减少伪相机采样频率
         self.dist_thres = 10.
         self.depth_weight = 0.03  # 降低深度损失权重加速计算
         self.depth_pseudo_weight = 0.5
