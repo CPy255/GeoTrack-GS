@@ -60,7 +60,6 @@ class ModelParams(ParamGroup):
         self.use_gtdca_attention = False  # 启用GT-DCA注意力模块
         self.enable_geometric_constraints = False  # 启用几何约束系统
         self.constraint_config_path = ""  # 约束配置文件路径
-        # 注意：其他几何约束参数在OptimizationParams中定义
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -80,7 +79,7 @@ class PipelineParams(ParamGroup):
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 10_000
-        self.position_lr_init = 0.00016
+        self.position_lr_init = 0.0008
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 10_000
@@ -90,18 +89,18 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 100  # 恢复正常密化频率
+        self.densification_interval = 150  # 减少密化频率提升速度
         self.opacity_reset_interval = 3000
-        self.densify_from_iter = 500
+        self.densify_from_iter = 300
         self.prune_from_iter = 500
-        self.densify_until_iter = 10_000  # 恢复正常密化时长
+        self.densify_until_iter = 8_000  # 提前结束密化
         self.densify_grad_threshold = 0.0005
-        self.prune_threshold = 0.005  # 恢复正常剪枝阈值
+        self.prune_threshold = 0.005
         self.start_sample_pseudo = 2000
         self.end_sample_pseudo = 9500
-        self.sample_pseudo_interval = 10  # 减少伪相机采样频率
+        self.sample_pseudo_interval = 20  # 减少伪相机采样频率
         self.dist_thres = 10.
-        self.depth_weight = 0.05  # 降低深度损失权重加速计算
+        self.depth_weight = 0.03  # 降低深度损失权重加速计算
         self.depth_pseudo_weight = 0.5
         # --- GeoTrack-GS: 新增优化与损失相关参数 ---
         self.use_hybrid_loss = False  # 启用混合几何损失模型
@@ -110,16 +109,11 @@ class OptimizationParams(ParamGroup):
         
         # 几何约束权重参数
         self.geometric_constraint_weight = 0.1  # 几何约束损失权重
-        self.constraint_weight = 0.1  # 约束权重（与geometric_constraint_weight等效，用于命令行便利）
         self.multiscale_constraint_weight = 0.05  # 多尺度约束权重
         self.consistency_constraint_weight = 0.02  # 一致性约束权重
         
-        # 约束功能开关
-        self.multiscale_constraints = False  # 启用多尺度约束
-        self.adaptive_weighting = False  # 启用自适应权重（与enable_adaptive_weighting等效）
-        
         # 自适应权重参数
-        self.enable_adaptive_weighting = False  # 启用自适应权重
+        self.enable_adaptive_weighting = True  # 启用自适应权重
         self.texture_weight_min = 0.3  # 纹理权重最小值
         self.texture_weight_max = 2.0  # 纹理权重最大值
         self.confidence_decay_factor = 2.0  # 置信度衰减因子

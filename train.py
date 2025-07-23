@@ -199,15 +199,12 @@ def training(dataset, opt, pipe, args):
                         cameras = scene.getTrainCameras()
                         gaussian_points = gaussians.get_xyz
                         
-                        # 计算自适应权重（如果启用）
-                        if getattr(args, 'adaptive_weighting', False) or getattr(opt, 'enable_adaptive_weighting', False):
-                            adaptive_weights = constraint_system.compute_adaptive_weights(
-                                active_trajectories, 
-                                image_regions=image,
-                                iteration=iteration
-                            )
-                        else:
-                            adaptive_weights = None
+                        # 计算自适应权重
+                        adaptive_weights = constraint_system.compute_adaptive_weights(
+                            active_trajectories, 
+                            image_regions=image,
+                            iteration=iteration
+                        )
                         
                         # 计算重投影约束
                         constraint_result = constraint_system.compute_reprojection_constraints(
@@ -216,23 +213,21 @@ def training(dataset, opt, pipe, args):
                             gaussian_points
                         )
                         
-                        # 计算多尺度约束（如果启用）
-                        if getattr(args, 'multiscale_constraints', False) or getattr(opt, 'multiscale_constraints', False):
-                            multiscale_result = constraint_system.compute_multiscale_constraints(
-                                active_trajectories,
-                                cameras,
-                                scales=[1.0, 0.5, 0.25]
-                            )
-                        else:
-                            multiscale_result = None
+                        # 计算多尺度约束
+                        multiscale_result = constraint_system.compute_multiscale_constraints(
+                            active_trajectories,
+                            cameras,
+                            scales=[1.0, 0.5, 0.25]
+                        )
                         
                         # 组合约束损失
-                        geometric_constraint_loss = constraint_result.loss_value
-                        if multiscale_result is not None:
-                            geometric_constraint_loss += multiscale_result.loss_value
+                        geometric_constraint_loss = (
+                            constraint_result.loss_value + 
+                            multiscale_result.loss_value
+                        )
                         
                         # 应用动态权重调度
-                        constraint_weight = getattr(args, 'constraint_weight', getattr(opt, 'constraint_weight', getattr(opt, 'geometric_constraint_weight', 0.1)))
+                        constraint_weight = getattr(args, 'geometric_constraint_weight', 0.1)
                         if iteration < 1000:
                             constraint_weight *= 0.1  # 早期阶段降低权重
                         elif iteration < 5000:
@@ -258,7 +253,7 @@ def training(dataset, opt, pipe, args):
             
             # GeoTrack-GS: 可选择性地禁用深度损失（用于消融实验）
             if not getattr(args, 'disable_depth_loss', False):
-                loss += args.depth_weight * depth_loss
+                loss += opt.depth_weight * depth_loss
             
             # GeoTrack-GS: 添加几何约束损失
             loss += geometric_constraint_loss
@@ -295,11 +290,11 @@ def training(dataset, opt, pipe, args):
 
                 if torch.isnan(depth_loss_pseudo).sum() == 0:
                     loss_scale = min((iteration - args.start_sample_pseudo) / 500., 1)
-                    loss += loss_scale * args.depth_pseudo_weight * depth_loss_pseudo
+                    loss += loss_scale * opt.depth_pseudo_weight * depth_loss_pseudo
 
         # 动态调整深度权重
         if iteration > args.end_sample_pseudo:
-            args.depth_weight = 0.001
+            opt.depth_weight = 0.001
 
         # 使用scaler进行反向传播
         if scaler is not None:
@@ -310,9 +305,7 @@ def training(dataset, opt, pipe, args):
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
-                # 显示高斯点数量以监控密集化
-                num_gaussians = gaussians.get_xyz.shape[0]
-                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Gaussians": num_gaussians})
+                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
@@ -472,9 +465,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test, psnr_test, ssim_test, lpips_test = 0.0, 0.0, 0.0, 0.0
-                # 限制评估相机数量以提升性能
-                max_eval_cameras = min(len(config['cameras']), 5)
-                for idx, viewpoint in enumerate(config['cameras'][:max_eval_cameras]):
+                for idx, viewpoint in enumerate(config['cameras']):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 8):
@@ -490,10 +481,10 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, testing_iterations
                     psnr_test += _psnr
                     ssim_test += _ssim
                     lpips_test += _lpips
-                psnr_test /= max_eval_cameras
-                ssim_test /= max_eval_cameras
-                lpips_test /= max_eval_cameras
-                l1_test /= max_eval_cameras
+                psnr_test /= len(config['cameras'])
+                ssim_test /= len(config['cameras'])
+                lpips_test /= len(config['cameras'])
+                l1_test /= len(config['cameras'])
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {} ".format(
                     iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
                 if tb_writer:
@@ -517,7 +508,7 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--llff_holdout", type=int, default=0, help="Holdout factor for LLFF data. 1/N of images are used for testing. Default=0 means all for training.")
 
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[5000, 10000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1000, 2000, 3000, 5000, 10000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[5000, 10000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--data_type", type=str, default="colmap", help="Type of dataset, e.g., 'colmap', 'blender', '360'")
