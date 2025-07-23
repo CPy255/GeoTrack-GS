@@ -199,12 +199,15 @@ def training(dataset, opt, pipe, args):
                         cameras = scene.getTrainCameras()
                         gaussian_points = gaussians.get_xyz
                         
-                        # 计算自适应权重
-                        adaptive_weights = constraint_system.compute_adaptive_weights(
-                            active_trajectories, 
-                            image_regions=image,
-                            iteration=iteration
-                        )
+                        # 计算自适应权重（如果启用）
+                        if getattr(args, 'adaptive_weighting', False) or getattr(opt, 'enable_adaptive_weighting', False):
+                            adaptive_weights = constraint_system.compute_adaptive_weights(
+                                active_trajectories, 
+                                image_regions=image,
+                                iteration=iteration
+                            )
+                        else:
+                            adaptive_weights = None
                         
                         # 计算重投影约束
                         constraint_result = constraint_system.compute_reprojection_constraints(
@@ -213,21 +216,23 @@ def training(dataset, opt, pipe, args):
                             gaussian_points
                         )
                         
-                        # 计算多尺度约束
-                        multiscale_result = constraint_system.compute_multiscale_constraints(
-                            active_trajectories,
-                            cameras,
-                            scales=[1.0, 0.5, 0.25]
-                        )
+                        # 计算多尺度约束（如果启用）
+                        if getattr(args, 'multiscale_constraints', False) or getattr(opt, 'multiscale_constraints', False):
+                            multiscale_result = constraint_system.compute_multiscale_constraints(
+                                active_trajectories,
+                                cameras,
+                                scales=[1.0, 0.5, 0.25]
+                            )
+                        else:
+                            multiscale_result = None
                         
                         # 组合约束损失
-                        geometric_constraint_loss = (
-                            constraint_result.loss_value + 
-                            multiscale_result.loss_value
-                        )
+                        geometric_constraint_loss = constraint_result.loss_value
+                        if multiscale_result is not None:
+                            geometric_constraint_loss += multiscale_result.loss_value
                         
                         # 应用动态权重调度
-                        constraint_weight = getattr(args, 'geometric_constraint_weight', 0.1)
+                        constraint_weight = getattr(args, 'constraint_weight', getattr(opt, 'constraint_weight', getattr(opt, 'geometric_constraint_weight', 0.1)))
                         if iteration < 1000:
                             constraint_weight *= 0.1  # 早期阶段降低权重
                         elif iteration < 5000:

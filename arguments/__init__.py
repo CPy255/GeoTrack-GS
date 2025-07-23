@@ -60,6 +60,7 @@ class ModelParams(ParamGroup):
         self.use_gtdca_attention = False  # 启用GT-DCA注意力模块
         self.enable_geometric_constraints = False  # 启用几何约束系统
         self.constraint_config_path = ""  # 约束配置文件路径
+        # 注意：其他几何约束参数在OptimizationParams中定义
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -109,8 +110,13 @@ class OptimizationParams(ParamGroup):
         
         # 几何约束权重参数
         self.geometric_constraint_weight = 0.1  # 几何约束损失权重
+        self.constraint_weight = 0.1  # 约束权重（与geometric_constraint_weight等效，用于命令行便利）
         self.multiscale_constraint_weight = 0.05  # 多尺度约束权重
         self.consistency_constraint_weight = 0.02  # 一致性约束权重
+        
+        # 约束功能开关
+        self.multiscale_constraints = False  # 启用多尺度约束
+        self.adaptive_weighting = False  # 启用自适应权重（与enable_adaptive_weighting等效）
         
         # 自适应权重参数
         self.enable_adaptive_weighting = True  # 启用自适应权重
