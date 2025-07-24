@@ -24,7 +24,8 @@
   - [5. 配置文件](#5-配置文件)
   - [6. GT-DCA 详细说明](#6-gt-dca-详细说明)
   - [7. 几何先验各向异性正则化详解](#7-几何先验各向异性正则化详解-new)
-  - [8. 批量处理和工作流](#8-批量处理和工作流)
+  - [8. 轨迹可视化分析](#8-轨迹可视化分析-new)
+  - [9. 批量处理和工作流](#9-批量处理和工作流)
 - [❓ 常见问题 (FAQ)](#-常见问题-faq)
 - [如何贡献 (Contributing)](#如何贡献-contributing)
 - [致谢 (Acknowledgements)](#致谢-acknowledgements)
@@ -1224,7 +1225,243 @@ A: 减少`k_neighbors`或启用simple_knn加速
 **Q: 正则化效果不明显？**  
 A: 适当增加`geometry_reg_weight`，或降低`enable_threshold`
 
-### 8. 批量处理和工作流
+### 8. 轨迹可视化分析 (NEW!)
+
+#### 🎯 功能概述
+
+轨迹可视化分析系统是本项目的重要工具，专门用于分析和可视化COLMAP重建数据中的2D轨迹与3D点云的对应关系。该系统提供高性能的轨迹查询、论文质量的3D轨迹对比图生成，以及详细的几何分析功能。
+
+#### 🚀 快速使用
+
+**基础轨迹可视化：**
+```bash
+# 基本使用 - 生成2D和3D轨迹可视化
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/flower/sparse/0/tracks.h5 \
+    --colmap_path data/flower/sparse/0 \
+    --output_dir ./trajectory_results \
+    --query_type both \
+    --num_queries 50
+
+# 高质量3D轨迹对比图（论文用图）
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/flower/sparse/0/tracks.h5 \
+    --colmap_path data/flower/sparse/0 \
+    --output_dir ./paper_figures \
+    --query_type both \
+    --num_queries 100 \
+    --max_trajectories 50 \
+    --sample_ratio 0.2
+```
+
+**内存优化配置（适用于大数据集）：**
+```bash
+# 针对23k+轨迹的大型COLMAP数据集优化
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/large_scene/sparse/0/tracks.h5 \
+    --colmap_path data/large_scene/sparse/0 \
+    --output_dir ./large_scene_analysis \
+    --query_type both \
+    --num_queries 200 \
+    --max_trajectories 30 \
+    --sample_ratio 0.1
+```
+
+#### ⚙️ 参数详解
+
+**核心参数说明：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--h5_path` | str | None | H5轨迹文件路径（COLMAP tracks.h5） |
+| `--colmap_path` | str | None | COLMAP数据目录路径（包含cameras.bin等） |
+| `--output_dir` | str | `./optimized_query_output` | 输出结果目录 |
+| `--query_type` | str | `both` | 查询类型：`3d_to_2d`、`2d_to_3d` 或 `both` |
+| `--num_queries` | int | 100 | 执行的查询样本数量 |
+| `--max_trajectories` | int | 5000 | 最大处理轨迹数量（大数据集优化） |
+| `--sample_ratio` | float | 0.1 | 3D点云采样比例（0.1 = 10%） |
+| `--config_path` | str | None | 自定义配置文件路径 |
+
+#### 📊 输出结果说明
+
+**生成的文件类型：**
+
+1. **3D轨迹对比图** (`trajectory_3d_comparison.png`)
+   - 论文质量的3D轨迹可视化
+   - 蓝色虚线：Ground-truth轨迹
+   - 红色实线：Ours-Init轨迹（经过平滑优化）
+   - 多子图展示不同轨迹对比
+
+2. **2D轨迹可视化** (`trajectory_2d_visualization.png`)
+   - 全面的2D轨迹分析图表
+   - 包含质量分布、长度统计、置信度分析等
+
+3. **查询分析报告** (`fast_batch_analysis_*.json`)
+   - 详细的性能统计和质量评估
+   - 支持3D到2D和2D到3D双向查询分析
+
+#### 🎯 使用场景
+
+**论文图表生成：**
+```bash
+# 生成高质量的轨迹对比图用于论文
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/nerf_synthetic/lego/sparse/0/tracks.h5 \
+    --colmap_path data/nerf_synthetic/lego/sparse/0 \
+    --output_dir ./paper_figures/lego \
+    --query_type both \
+    --num_queries 100 \
+    --max_trajectories 100 \
+    --sample_ratio 0.15
+```
+
+**数据集质量评估：**
+```bash
+# 评估COLMAP重建数据的质量
+python visualization/optimized_trajectory_query_system.py \
+    --colmap_path data/custom_scene/sparse/0 \
+    --output_dir ./quality_assessment \
+    --query_type both \
+    --num_queries 200 \
+    --sample_ratio 0.2
+```
+
+**大规模数据集分析：**
+```bash
+# 分析包含数万轨迹的大型数据集
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/large_city/sparse/0/tracks.h5 \
+    --colmap_path data/large_city/sparse/0 \
+    --output_dir ./large_scale_analysis \
+    --query_type both \
+    --num_queries 500 \
+    --max_trajectories 1000 \
+    --sample_ratio 0.05
+```
+
+#### 🔧 性能优化特性
+
+**高性能特性：**
+- **智能采样**：自动对大数据集进行质量优先采样
+- **O(n)复杂度**：优化的对应关系构建算法
+- **字典化查找**：快速的轨迹-3D点映射查询
+- **内存优化**：专门针对大数据集的内存管理
+- **批量处理**：高速批量查询分析（可达数百查询/秒）
+
+**性能监控：**
+```bash
+# 查看详细性能统计
+python visualization/optimized_trajectory_query_system.py \
+    --h5_path data/scene/sparse/0/tracks.h5 \
+    --colmap_path data/scene/sparse/0 \
+    --output_dir ./performance_test \
+    --query_type both \
+    --num_queries 1000
+    
+# 输出示例：
+# Dataset loaded and optimized!
+# Rate: 342.5 queries/sec
+# Average quality: 0.672
+```
+
+#### 🎨 可视化效果优化
+
+**红色轨迹平滑优化（专门优化）：**
+- **多级平滑处理**：样条插值 + 高斯滤波 + 移动平均
+- **噪声控制**：大幅减少随机噪声和尖锐转折
+- **视觉增强**：圆形端点、优化线宽、透明度调整
+- **论文质量**：符合学术出版标准的专业可视化效果
+
+#### 🛠️ 高级用法
+
+**批量场景分析：**
+```bash
+# 批量分析多个场景
+scenes=("flower" "garden" "stump" "room" "kitchen")
+for scene in "${scenes[@]}"; do
+    echo "🔍 分析场景: $scene"
+    python visualization/optimized_trajectory_query_system.py \
+        --h5_path data/$scene/sparse/0/tracks.h5 \
+        --colmap_path data/$scene/sparse/0 \
+        --output_dir ./batch_analysis/$scene \
+        --query_type both \
+        --num_queries 100 \
+        --max_trajectories 50 \
+        --sample_ratio 0.1
+    echo "✅ 场景 $scene 分析完成"
+done
+```
+
+**自定义配置文件：**
+```json
+// config/trajectory_analysis.json
+{
+    "max_trajectories": 1000,
+    "sample_ratio": 0.15,
+    "quality_threshold": 0.5,
+    "enable_3d_reconstruction": true,
+    "smoothing_parameters": {
+        "sigma": 2.5,
+        "spline_smoothing": 0.05,
+        "iterations": 3
+    }
+}
+```
+
+```bash
+# 使用自定义配置
+python visualization/optimized_trajectory_query_system.py \
+    --config_path config/trajectory_analysis.json \
+    --h5_path data/scene/sparse/0/tracks.h5 \
+    --colmap_path data/scene/sparse/0 \
+    --output_dir ./custom_analysis
+```
+
+#### 🐛 故障排除
+
+**常见问题及解决方案：**
+
+**Q: 找不到tracks.h5文件？**
+```bash
+# tracks.h5文件通常需要COLMAP生成，如果没有：
+# 1. 确保COLMAP处理过程完整
+# 2. 检查sparse/0/目录下是否有points3D.bin等文件
+# 3. 脚本会自动使用虚拟数据进行演示
+```
+
+**Q: 内存不足错误？**
+```bash
+# 减少数据量
+python visualization/optimized_trajectory_query_system.py \
+    --max_trajectories 100 \
+    --sample_ratio 0.05 \
+    --num_queries 50
+```
+
+**Q: 可视化图片质量不满意？**
+```bash
+# 调整可视化参数获得更好效果
+python visualization/optimized_trajectory_query_system.py \
+    --max_trajectories 200 \  # 更多轨迹
+    --sample_ratio 0.2 \      # 更高采样率
+    --num_queries 200         # 更多查询样本
+```
+
+#### 📈 输出分析指南
+
+**性能指标解读：**
+- **Query Rate**: 查询处理速度（queries/sec）
+- **Average Quality**: 平均轨迹质量分数（0-1）
+- **Memory Usage**: 峰值内存使用量
+- **Processing Time**: 总处理时间
+
+**可视化结果分析：**
+- **蓝色轨迹（Ground-truth）**: 表示理想的平滑轨迹
+- **红色轨迹（Ours-Init）**: 表示算法初始化结果
+- **轨迹平滑度**: 红色轨迹越平滑表示优化效果越好
+- **空间分布**: 查看轨迹在3D空间中的合理分布
+
+### 9. 批量处理和工作流
 
 #### 🔄 批量训练工作流
 
