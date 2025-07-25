@@ -562,7 +562,7 @@ if __name__ == "__main__":
             dropout_rate=getattr(args, 'gt_dca_dropout_rate', 0.0),  # Disable dropout for speed
             attention_heads=getattr(args, 'gt_dca_attention_heads', 2),  # Minimal attention heads
             use_mixed_precision=getattr(args, 'mixed_precision', False),
-            amp_dtype=getattr(opt, 'amp_dtype', 'fp16')
+            amp_dtype=getattr(args, 'amp_dtype', 'fp16')
         )
         
         # Attach GT-DCA configuration to args

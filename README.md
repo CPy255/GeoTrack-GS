@@ -25,7 +25,8 @@
   - [6. GT-DCA 详细说明](#6-gt-dca-详细说明)
   - [7. 几何先验各向异性正则化详解](#7-几何先验各向异性正则化详解-new)
   - [8. 轨迹可视化分析](#8-轨迹可视化分析-new)
-  - [9. 批量处理和工作流](#9-批量处理和工作流)
+  - [9. 高级可视化工具](#9-高级可视化工具-new)
+  - [10. 批量处理和工作流](#10-批量处理和工作流)
 - [❓ 常见问题 (FAQ)](#-常见问题-faq)
 - [如何贡献 (Contributing)](#如何贡献-contributing)
 - [致谢 (Acknowledgements)](#致谢-acknowledgements)
@@ -1565,7 +1566,275 @@ python visualization/optimized_trajectory_query_system.py \
 - **轨迹平滑度**: 红色轨迹越平滑表示优化效果越好
 - **空间分布**: 查看轨迹在3D空间中的合理分布
 
-### 9. 批量处理和工作流
+### 9. 高级可视化工具 (NEW!)
+
+本节介绍两个专门的可视化工具，用于深入分析项目的核心技术机制和模型性能。
+
+#### 🎯 工具概述
+
+1. **几何正则化可视化器** (`principled_mixed_regularization_visualizer.py`)：专门用于可视化几何先验各向异性正则化机制
+2. **GT-DCA增强外观建模可视化器** (`gt_dca_enhanced_appearance_visualizer.py`)：专门用于可视化GT-DCA模块的工作原理
+
+---
+
+#### 📊 工具1：几何正则化可视化器
+
+专门用于可视化和分析几何先验各向异性正则化的核心机制。
+
+##### 🚀 快速使用
+
+**基础使用（使用合成数据）：**
+```bash
+# 生成完整的几何正则化可视化图表
+python visualization/principled_mixed_regularization_visualizer.py
+
+# 自定义输出目录
+python visualization/principled_mixed_regularization_visualizer.py \
+    --output_dir ./geometry_reg_analysis
+
+# 使用真实PLY数据
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/your_model/point_cloud/iteration_30000/point_cloud.ply \
+    --output_dir ./real_data_analysis
+```
+
+**高质量论文图表生成：**
+```bash
+# 生成论文质量的可视化图表
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/flower_model/point_cloud/iteration_30000/point_cloud.ply \
+    --output_dir ./paper_figures/geometry_regularization \
+    --model_path output/flower_model
+```
+
+##### ⚙️ 主要参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--output_dir` | str | `./visualization_outputs/regularization_default` | 输出目录（智能场景识别） |
+| `--model_path` | str | None | 训练模型路径（包含point_cloud.ply） |
+| `--ply_path` | str | None | 直接PLY文件路径 |
+| `--use_synthetic` | flag | False | 强制使用合成数据演示 |
+
+##### 📈 可视化内容
+
+生成的可视化图表包含：
+
+1. **主要可视化图** (`principled_mixed_regularization.png`)
+   - **PCA局部几何感知**：展示K近邻分析和主成分提取
+   - **三重约束机制**：主轴对齐、尺度比例约束、各向异性惩罚
+   - **混合损失设计**：各损失组件的权重和计算方式
+   - **正则化效果对比**：正则化前后的高斯形状对比
+
+2. **详细PCA分析图** (`pca_analysis_detailed.png`)
+   - K近邻选择可视化
+   - 特征值分解详细过程
+   - 局部几何结构提取
+
+3. **损失组件分析图** (`loss_component_analysis.png`)
+   - 各损失项的贡献分析
+   - 权重平衡机制
+   - 训练过程中的损失变化
+
+4. **效果对比分析图** (`effect_comparison_analysis.png`)
+   - 正则化前后的定量对比
+   - 形状匹配度评估
+   - 边缘模糊改善效果
+
+##### 💡 智能输出目录
+
+工具支持智能输出目录管理：
+```bash
+# 当提供PLY路径时，自动根据场景名生成目录
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path data/flower/point_cloud.ply
+# 自动输出到: ./visualization_outputs/regularization_flower
+
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/chair_model/iteration_30000/point_cloud.ply  
+# 自动输出到: ./visualization_outputs/regularization_chair
+```
+
+---
+
+#### 🎨 工具2：GT-DCA增强外观建模可视化器
+
+专门用于可视化GT-DCA模块的两阶段处理流程和性能分析。
+
+##### 🚀 快速使用
+
+**基础使用（使用合成数据）：**
+```bash
+# 生成完整的GT-DCA可视化图表
+python visualization/gt_dca_enhanced_appearance_visualizer.py
+
+# 自定义输出目录
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --output_dir ./gtdca_analysis
+
+# 使用真实模型数据
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/your_gtdca_model \
+    --output_dir ./real_gtdca_analysis
+```
+
+**高质量论文图表生成：**
+```bash
+# 生成论文质量的GT-DCA可视化图表
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/flower_gtdca \
+    --ply_path output/flower_gtdca/point_cloud/iteration_30000/point_cloud.ply \
+    --output_dir ./paper_figures/gtdca_analysis \
+    --n_gaussians 50 \
+    --n_track_points 20
+```
+
+##### ⚙️ 主要参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--output_dir` | str | `./visualization_outputs/gtdca_default` | 输出目录（智能场景识别） |
+| `--model_path` | str | None | 训练模型路径 |
+| `--ply_path` | str | None | 直接PLY文件路径 |
+| `--use_synthetic` | flag | False | 强制使用合成数据演示 |
+| `--n_gaussians` | int | 25 | 可视化的高斯基元数量 |
+| `--n_track_points` | int | 15 | 可视化的轨迹点数量 |
+| `--max_gaussians` | int | 1000 | 最大处理高斯基元数（内存优化） |
+| `--sampling_method` | str | smart | 高斯基元采样方法（random/smart/spatial） |
+
+##### 📈 可视化内容
+
+生成的可视化图表包含六个子图：
+
+1. **几何引导机制** - 展示2D轨迹点如何通过交叉注意力引导3D高斯基元特征
+2. **可变形采样过程** - 动态偏移预测和采样点分布可视化
+3. **交叉注意力权重** - 热力图展示轨迹点重要性分析
+4. **两阶段处理流程** - 完整的引导→采样管道图解
+5. **外观增强效果对比** - PCA降维后的特征质量对比
+6. **性能指标分析** - 定量改善效果评估
+
+##### 💡 智能输出目录
+
+同样支持智能输出目录管理：
+```bash
+# 根据PLY路径自动生成场景相关目录
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --ply_path data/flower/point_cloud.ply
+# 自动输出到: ./visualization_outputs/gtdca_flower
+
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/lego_gtdca
+# 自动输出到: ./visualization_outputs/gtdca_lego
+```
+
+---
+
+#### 🎯 使用场景推荐
+
+**论文图表生成：**
+```bash
+# 生成几何正则化的论文图表
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/building_model/point_cloud/iteration_30000/point_cloud.ply \
+    --output_dir ./paper_figures/geometry_reg
+
+# 生成GT-DCA的论文图表  
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/flower_gtdca \
+    --output_dir ./paper_figures/gtdca \
+    --n_gaussians 30 \
+    --n_track_points 20
+```
+
+**技术原理演示：**
+```bash
+# 使用合成数据展示技术原理（无需真实模型）
+python visualization/principled_mixed_regularization_visualizer.py \
+    --use_synthetic \
+    --output_dir ./tech_demo/geometry_reg
+
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --use_synthetic \
+    --output_dir ./tech_demo/gtdca
+```
+
+**批量场景分析：**
+```bash
+# 批量分析多个场景的技术效果
+scenes=("flower" "garden" "stump" "room")
+for scene in "${scenes[@]}"; do
+    # 几何正则化分析
+    python visualization/principled_mixed_regularization_visualizer.py \
+        --ply_path output/${scene}_model/point_cloud/iteration_30000/point_cloud.ply \
+        --output_dir ./batch_analysis/geometry_reg_${scene}
+    
+    # GT-DCA分析
+    python visualization/gt_dca_enhanced_appearance_visualizer.py \
+        --model_path output/${scene}_gtdca \
+        --output_dir ./batch_analysis/gtdca_${scene}
+done
+```
+
+#### 🔧 性能优化
+
+**大数据集处理：**
+```bash
+# 内存优化配置（适用于大模型）
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/large_scene_gtdca \
+    --max_gaussians 500 \
+    --n_gaussians 20 \
+    --n_track_points 10 \
+    --sampling_method smart
+```
+
+**高质量图表设置：**
+```bash
+# 论文质量设置
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/high_quality_model/point_cloud.ply \
+    --output_dir ./paper_quality_figures
+
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --model_path output/high_quality_gtdca \
+    --output_dir ./paper_quality_figures \
+    --n_gaussians 40 \
+    --n_track_points 25
+```
+
+#### 🐛 故障排除
+
+**常见问题：**
+
+**Q: 找不到PLY文件？**
+```bash
+# 工具会自动fallback到合成数据演示
+# 或者指定正确的PLY路径
+python visualization/principled_mixed_regularization_visualizer.py \
+    --ply_path output/your_model/point_cloud/iteration_30000/point_cloud.ply
+```
+
+**Q: 内存不足？**
+```bash
+# 减少可视化数据量
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --max_gaussians 300 \
+    --n_gaussians 15 \
+    --n_track_points 8
+```
+
+**Q: 图表质量不满意？**
+```bash
+# 增加数据量和细节
+python visualization/gt_dca_enhanced_appearance_visualizer.py \
+    --n_gaussians 50 \
+    --n_track_points 30 \
+    --sampling_method smart
+```
+
+---
+
+### 10. 批量处理和工作流
 
 #### 🔄 批量训练工作流
 
