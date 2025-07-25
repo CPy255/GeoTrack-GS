@@ -216,6 +216,74 @@ class PrincipledMixedRegularizationVisualizer:
             self.logger.error(f"Failed to load PLY file: {e}")
             return None
     
+    def _calculate_gaussian_importance(self, data: Dict) -> np.ndarray:
+        """
+        计算高斯基元的重要性分数，用于智能采样
+        
+        Args:
+            data: 高斯数据字典
+            
+        Returns:
+            importance_scores: 每个高斯基元的重要性分数
+        """
+        positions = data['positions']
+        scales = data['scales_before']
+        opacity = data.get('opacity', np.ones(len(positions)))
+        
+        # 1. 不透明度权重 (越不透明越重要)
+        opacity_score = np.exp(opacity)  # opacity通常是负值，需要转换
+        
+        # 2. 尺度权重 (中等尺度最重要，太大太小都不重要)
+        scale_mean = np.mean(scales, axis=1)
+        scale_median = np.median(scale_mean)
+        scale_score = np.exp(-0.5 * ((np.log(scale_mean + 1e-6) - np.log(scale_median + 1e-6)) / 2) ** 2)
+        
+        # 3. 空间分布权重 (避免采样过于集中)
+        center = np.mean(positions, axis=0)
+        distances = np.linalg.norm(positions - center, axis=1)
+        distance_score = 1.0 / (1.0 + distances / np.std(distances))  # 距离中心适中的更重要
+        
+        # 综合重要性分数
+        importance_scores = opacity_score * scale_score * distance_score
+        
+        return importance_scores
+    
+    def _smart_sampling(self, importance_scores: np.ndarray, target_samples: int) -> np.ndarray:
+        """
+        基于重要性分数的智能采样
+        
+        Args:
+            importance_scores: 重要性分数
+            target_samples: 目标采样数量
+            
+        Returns:
+            indices: 选中的索引
+        """
+        n_total = len(importance_scores)
+        
+        # 混合策略：80%基于重要性采样，20%随机采样（保证多样性）
+        n_importance = int(target_samples * 0.8)
+        n_random = target_samples - n_importance
+        
+        # 基于重要性的采样
+        probabilities = importance_scores / np.sum(importance_scores)
+        importance_indices = np.random.choice(
+            n_total, n_importance, replace=False, p=probabilities
+        )
+        
+        # 随机采样（从剩余的点中）
+        remaining_indices = np.setdiff1d(np.arange(n_total), importance_indices)
+        if len(remaining_indices) >= n_random:
+            random_indices = np.random.choice(remaining_indices, n_random, replace=False)
+        else:
+            # 如果剩余点不够，就用替换采样
+            random_indices = np.random.choice(remaining_indices, n_random, replace=True)
+        
+        # 合并索引
+        selected_indices = np.concatenate([importance_indices, random_indices])
+        
+        return selected_indices
+    
     def generate_synthetic_gaussian_data(self, n_gaussians: int = 50, 
                                        k_neighbors: int = 8) -> Dict:
         """
@@ -420,13 +488,15 @@ class PrincipledMixedRegularizationVisualizer:
             'anisotropy_penalties': np.array(anisotropy_penalties)
         }
     
-    def create_mixed_regularization_visualization(self, use_real_data: bool = True):
+    def create_mixed_regularization_visualization(self, use_real_data: bool = True, preloaded_data: Optional[Dict] = None):
         """创建完整的原则性混合正则化可视化图"""
         self.logger.info("🎨 创建原则性混合正则化可视化图...")
         
-        # 尝试加载真实数据
-        data = None
-        if use_real_data and self.model_path:
+        # 如果有预加载的数据，优先使用
+        data = preloaded_data
+        
+        # 如果没有预加载数据，尝试加载真实数据
+        if data is None and use_real_data and self.model_path:
             data = self.load_real_gaussian_data()
         
         # 如果真实数据加载失败，使用合成数据
@@ -435,15 +505,22 @@ class PrincipledMixedRegularizationVisualizer:
             data = self.generate_synthetic_gaussian_data(n_gaussians=30, k_neighbors=8)
         else:
             self.logger.info("📊 使用真实训练数据进行可视化...")
-            # 对于大型数据集，进行采样以提高可视化性能
+            # 对于大型数据集，进行智能采样以提高可视化性能
             n_gaussians = data['n_gaussians']
-            if n_gaussians > 1000:
-                self.logger.info(f"🎯 大数据集采样: {n_gaussians} -> 1000 个高斯基元")
-                indices = np.random.choice(n_gaussians, 1000, replace=False)
-                data['positions'] = data['positions'][indices]
-                data['scales_before'] = data['scales_before'][indices]
-                data['rotations_before'] = data['rotations_before'][indices]
-                data['n_gaussians'] = 1000
+            target_samples = min(100, n_gaussians)  # 降低到100个样本，避免可视化过于拥挤
+            
+            if n_gaussians > target_samples:
+                self.logger.info(f"🎯 智能采样: {n_gaussians} -> {target_samples} 个高斯基元")
+                
+                # 基于重要性的智能采样
+                importance_scores = self._calculate_gaussian_importance(data)
+                indices = self._smart_sampling(importance_scores, target_samples)
+                
+                # 更新数据
+                for key in ['positions', 'scales_before', 'rotations_before', 'opacity']:
+                    if key in data:
+                        data[key] = data[key][indices]
+                data['n_gaussians'] = target_samples
         
         pca_results = self.compute_local_pca_analysis(data['positions'], data['k_neighbors'])
         reg_results = self.simulate_regularization_effects(data, pca_results)
@@ -812,7 +889,7 @@ class PrincipledMixedRegularizationVisualizer:
         """创建PCA分析详细图"""
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
         fig.suptitle('Local Geometry Perception: Detailed PCA Analysis\nNeighborhood Structure & Principal Component Analysis', 
-                    fontsize=14, fontweight='bold')
+                    fontsize=14, fontweight='bold', y=0.98)  # 向上移动标题位置
         
         positions = data['positions']
         eigenvalues = pca_results['eigenvalues']
@@ -856,7 +933,7 @@ class PrincipledMixedRegularizationVisualizer:
                                           autopct='%1.1f%%', startangle=90)
         ax4.set_title('Local Geometry Type Distribution')
         
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.94])  # 为标题留出空间
         
         # 保存
         output_path = self.output_dir / 'pca_analysis_detailed.png'
@@ -1063,8 +1140,8 @@ class PrincipledMixedRegularizationVisualizer:
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description="Principled Mixed Regularization Visualizer")
-    parser.add_argument("--output_dir", type=str, default="./regularization_visualization",
-                       help="Output directory path")
+    parser.add_argument("--output_dir", type=str, default="./visualization_outputs/regularization_default",
+                       help="Output directory path (will be created if not exists). Examples: './visualization_outputs/flower_analysis', './visualization_outputs/chair_comparison'")
     parser.add_argument("--model_path", type=str, default=None,
                        help="Training model path (containing point_cloud.ply file)")
     parser.add_argument("--ply_path", type=str, default=None,
@@ -1074,13 +1151,41 @@ def main():
     
     args = parser.parse_args()
     
+    # 智能输出目录：如果使用默认值且提供了PLY路径，则根据PLY文件生成目录名
+    output_dir = args.output_dir
+    if args.output_dir == "./visualization_outputs/regularization_default" and args.ply_path:
+        # 从PLY路径提取场景名称
+        ply_path = Path(args.ply_path)
+        # 尝试从路径中提取场景名（如flower, chair等）
+        path_parts = ply_path.parts
+        scene_name = None
+        for part in path_parts:
+            if part in ['flower', 'chair', 'lego', 'drums', 'ficus', 'hotdog', 'materials', 'mic', 'ship']:
+                scene_name = part
+                break
+        
+        if scene_name:
+            output_dir = f"./visualization_outputs/regularization_{scene_name}"
+            print(f"🎯 智能输出目录: {output_dir}")
+        else:
+            # 如果没有识别到场景名，尝试从迭代数提取信息
+            iteration_match = None
+            for part in path_parts:
+                if 'iteration_' in part:
+                    iteration_match = part
+                    break
+            if iteration_match:
+                output_dir = f"./visualization_outputs/regularization_{iteration_match}"
+                print(f"🎯 智能输出目录: {output_dir}")
+    
     # 创建可视化器
     visualizer = PrincipledMixedRegularizationVisualizer(
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         model_path=args.model_path
     )
     
     # 如果指定了PLY路径，直接加载
+    real_data = None
     if args.ply_path:
         print(f"Loading PLY file: {args.ply_path}")
         real_data = visualizer.load_real_gaussian_data(args.ply_path)
@@ -1091,7 +1196,7 @@ def main():
     
     # 生成可视化
     use_real = not args.use_synthetic
-    visualizer.create_mixed_regularization_visualization(use_real_data=use_real)
+    visualizer.create_mixed_regularization_visualization(use_real_data=use_real, preloaded_data=real_data)
     
     print("Principled Mixed Regularization visualization completed!")
     print(f"Results saved in: {args.output_dir}")
