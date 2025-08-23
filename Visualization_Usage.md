@@ -110,6 +110,20 @@ trajectory_visualizations/
     └── 3d_skeleton_info.json               # 数据集详细信息
 ```
 
+**预期输出示例：**
+
+1. **2D特征轨迹可视化示例**
+   
+   ![2D轨迹可视化](images/trajectory_visualizations/trajectory_2d_image_000.png)
+   
+   *图：2D特征轨迹可视化 - 显示特征点检测、轨迹连接和置信度分析*
+
+2. **3D几何骨架可视化示例**
+   
+   ![3D骨架可视化](images/trajectory_visualizations/trajectory_3d_skeleton_top_fallback.png)
+   
+   *图：3D几何骨架可视化 - 展示空间轨迹结构和质量分布*
+
 **可视化特点：**
 
 1. **2D特征轨迹图**
@@ -198,6 +212,20 @@ python visualization/optimized_trajectory_query_system.py \
 3. **查询分析报告** (`fast_batch_analysis_*.json`)
    - 详细的性能统计和质量评估
    - 支持3D到2D和2D到3D双向查询分析
+
+**预期输出示例：**
+
+1. **3D轨迹对比可视化示例**
+   
+   ![3D轨迹对比](images/optimized_query_output/trajectory_3d_comparison.png)
+   
+   *图：3D轨迹对比分析 - 蓝色为Ground-truth轨迹，红色为优化后轨迹*
+
+2. **2D轨迹分析可视化示例**
+   
+   ![2D轨迹分析](images/optimized_query_output/trajectory_2d_visualization.png)
+   
+   *图：2D轨迹质量分析 - 包含轨迹长度分布、质量统计和置信度评估*
 
 **高性能特性：**
 - **智能采样**：自动对大数据集进行质量优先采样
@@ -321,6 +349,32 @@ python visualization/principled_mixed_regularization_visualizer.py \
    - 形状匹配度评估
    - 边缘模糊改善效果
 
+**预期输出示例：**
+
+1. **几何正则化主要可视化**
+   
+   ![几何正则化](images/regularization/principled_mixed_regularization.png)
+   
+   *图：几何先验各向异性正则化机制 - 展示PCA分析、约束机制和效果对比*
+
+2. **PCA分析详细过程**
+   
+   ![PCA分析](images/regularization/pca_analysis_detailed.png)
+   
+   *图：PCA局部几何感知详细分析 - K近邻选择和特征值分解过程*
+
+3. **损失组件分析**
+   
+   ![损失分析](images/regularization/loss_component_analysis.png)
+   
+   *图：混合损失组件分析 - 各损失项权重和贡献度评估*
+
+4. **效果对比分析**
+   
+   ![效果对比](images/regularization/effect_comparison_analysis.png)
+   
+   *图：正则化效果对比 - 形状匹配度和边缘质量改善评估*
+
 ---
 
 ### 🎨 工具2：GT-DCA增强外观建模可视化器
@@ -378,6 +432,12 @@ python visualization/gt_dca_enhanced_appearance_visualizer.py \
 4. **两阶段处理流程** - 完整的引导→采样管道图解
 5. **外观增强效果对比** - PCA降维后的特征质量对比
 6. **性能指标分析** - 定量改善效果评估
+
+**预期输出示例：**
+
+![GT-DCA增强外观建模](images/gtdca/gtd_ca_enhanced_appearance_modeling.png)
+
+*图：GT-DCA增强外观建模可视化 - 展示几何引导机制、可变形采样过程、交叉注意力权重分析、两阶段处理流程、外观增强效果对比和性能指标分析*
 
 ## 批量处理和工作流
 
@@ -540,3 +600,4 @@ python visualization/run_trajectory_visualization.py --tracks_h5 /path/to/tracks
 - **轨迹平滑度**: 红色轨迹越平滑表示优化效果越好
 - **空间分布**: 查看轨迹在3D空间中的合理分布
 
+    
