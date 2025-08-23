@@ -14,8 +14,8 @@ import logging
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from visualization.feature_trajectory_2d_visualizer import FeatureTrajectory2DVisualizer
-from visualization.trajectory_3d_skeleton_visualizer import Trajectory3DSkeletonVisualizer
+from feature_trajectory_2d_visualizer import FeatureTrajectory2DVisualizer
+from trajectory_3d_skeleton_visualizer import Trajectory3DSkeletonVisualizer
 
 
 def setup_logging():
